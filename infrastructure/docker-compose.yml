@@ -1,0 +1,57 @@
+# SmartMall AI OS — Postgres + Redis + RabbitMQ + API
+# Usage: from repo root → docker compose -f infrastructure/docker-compose.yml up --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: smartmall
+      POSTGRES_PASSWORD: smartmall
+      POSTGRES_DB: smartmall
+    ports:
+      - "5432:5432"
+    volumes:
+      - smartmall_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartmall -d smartmall"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: smartmall
+      RABBITMQ_DEFAULT_PASS: smartmall
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  api:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://smartmall:smartmall@postgres:5432/smartmall
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://smartmall:smartmall@rabbitmq:5672/
+      JWT_SECRET_KEY: change-me-in-production
+      CORS_ORIGINS: http://127.0.0.1:3000,http://localhost:3000
+      DISABLE_EVENT_BUS: "0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+
+volumes:
+  smartmall_pg:
