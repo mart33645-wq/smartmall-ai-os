@@ -62,13 +62,13 @@ api.interceptors.response.use(
   (err) => {
     const url = String(err.config?.url || '');
     if (err.response?.status === 401 && !url.includes('/api/auth/login')) {
+      // Login flow removed: keep the app running and just surface the error.
       try {
         localStorage.removeItem(USER_STORAGE_KEY);
       } catch {
         /* ignore */
       }
-      // Redirect to login page instead of blank reload to break infinite loops
-      window.location.href = '/login';
+      toast.error(getStoredLang() === 'ar' ? 'غير مصرح' : 'Unauthorized');
     } else if (err.response?.data?.detail) {
       toast.error(err.response.data.detail);
     } else {
