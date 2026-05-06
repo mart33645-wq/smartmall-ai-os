@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from core.deps import get_current_user
@@ -9,8 +9,12 @@ router = APIRouter()
 
 
 @router.get("/export/pdf")
-def export_pdf(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    pdf_content = ReportService.generate_mall_performance_pdf(db)
+def export_pdf(
+    lang: str = Query("en", pattern="^(ar|en)$"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    pdf_content = ReportService.generate_mall_performance_pdf(db, lang=lang)
     return Response(
         content=pdf_content, 
         media_type="application/pdf", 

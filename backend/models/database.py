@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, JSON, text
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, JSON, text, Index
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
@@ -43,6 +43,10 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+def utcnow() -> datetime.datetime:
+    return datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
@@ -55,6 +59,10 @@ class User(Base):
 
 class Shop(Base):
     __tablename__ = "shops"
+    __table_args__ = (
+        Index("ix_shops_risk_score", "is_at_risk", "performance_score"),
+        Index("ix_shops_category_floor", "category", "floor"),
+    )
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
     category = Column(String)
@@ -65,17 +73,20 @@ class Shop(Base):
     visitor_count = Column(Integer, default=0)
     performance_score = Column(Float, default=100.0)
     owner_id = Column(Integer, ForeignKey("users.id"))
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=utcnow)
 
 
 class Alert(Base):
     __tablename__ = "alerts"
+    __table_args__ = (
+        Index("ix_alerts_resolved_type", "is_resolved", "type"),
+    )
     id = Column(Integer, primary_key=True, index=True)
     type = Column(String)  # CRITICAL, WARNING, INFO, SUCCESS
     message = Column(String)
     zone = Column(String)
-    is_resolved = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    is_resolved = Column(Boolean, default=False, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
 
 
 class Task(Base):
@@ -84,13 +95,16 @@ class Task(Base):
     title = Column(String)
     description = Column(String)
     priority = Column(String)  # High, Medium, Low
-    status = Column(String)  # Pending, In Progress, Completed
+    status = Column(String, index=True)  # Pending, In Progress, Completed
     assigned_to = Column(Integer, ForeignKey("users.id"))
-    deadline = Column(DateTime)
+    deadline = Column(DateTime, index=True)
 
 
 class ParkingSlot(Base):
     __tablename__ = "parking_slots"
+    __table_args__ = (
+        Index("ix_parking_occupied_level", "is_occupied", "level"),
+    )
     id = Column(Integer, primary_key=True, index=True)
     slot_number = Column(String, unique=True)
     level = Column(Integer, default=1)
@@ -104,7 +118,30 @@ class MallEvent(Base):
     id = Column(Integer, primary_key=True, index=True)
     event_type = Column(String, index=True)
     payload = Column(JSON)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+
+
+class AssistantConversation(Base):
+    __tablename__ = "assistant_conversations"
+    id = Column(String, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String, default="SmartMall AI Assistant")
+    context_summary = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, index=True)
+
+
+class AssistantMessage(Base):
+    __tablename__ = "assistant_messages"
+    __table_args__ = (
+        Index("ix_assistant_messages_conversation_created", "conversation_id", "created_at"),
+    )
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(String, ForeignKey("assistant_conversations.id"), nullable=False, index=True)
+    role = Column(String, index=True)  # user | assistant | system
+    content = Column(String)
+    payload = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
 
 
 def get_db():

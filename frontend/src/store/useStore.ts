@@ -10,6 +10,7 @@ export interface Shop {
   daily_revenue: number;
   visitor_count: number;
   performance_score: number;
+  updated_at?: string | null;
 }
 
 export interface Alert {
@@ -98,7 +99,8 @@ export const useStore = create<SmartMallState>((set) => ({
   user: (() => {
     try {
       const stored = localStorage.getItem('smartmall_user');
-      return stored ? JSON.parse(stored) : null;
+      if (stored) return JSON.parse(stored);
+      return null;
     } catch { return null; }
   })(),
   setUser: (user) => {

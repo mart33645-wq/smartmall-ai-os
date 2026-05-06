@@ -40,7 +40,10 @@ export const LangProvider = ({ children }: { children: ReactNode }) => {
     document.documentElement.lang = lang;
   }, [lang]);
 
-  const t = (key: TranslationKey): string => translations[lang][key] || translations.en[key] || key;
+  const t = (key: TranslationKey): string => {
+    const currentTranslations = translations[lang] as Partial<Record<TranslationKey, string>>;
+    return currentTranslations[key] || translations.en[key] || key;
+  };
 
   return (
     <LangContext.Provider value={{ lang, setLang, t, isRTL: lang === 'ar' }}>

@@ -9,23 +9,25 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+TEST_DB = Path(os.getenv("TEMP", str(ROOT))) / "smartmall_pytest.db"
+
 os.environ["SMARTMALL_TESTING"] = "true"
-os.environ["SQLITE_DATABASE_URL"] = f"sqlite:///{ROOT / 'pytest_smartmall.db'}"
+os.environ["SQLITE_DATABASE_URL"] = f"sqlite:///{TEST_DB}"
 os.environ["DISABLE_EVENT_BUS"] = "true"
+os.environ["GEMINI_API_KEY"] = ""
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _clean_db_file():
-    dbf = ROOT / "pytest_smartmall.db"
-    if dbf.exists():
+    if TEST_DB.exists():
         try:
-            dbf.unlink()
+            TEST_DB.unlink()
         except OSError:
             pass
     yield
-    if dbf.exists():
+    if TEST_DB.exists():
         try:
-            dbf.unlink()
+            TEST_DB.unlink()
         except OSError:
             pass
 

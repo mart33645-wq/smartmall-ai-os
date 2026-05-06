@@ -4,27 +4,31 @@ import datetime
 
 pwd_context = CryptContext(schemes=["sha256_crypt"], deprecated="auto")
 
+
+def _utcnow() -> datetime.datetime:
+    return datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+
 def seed_database():
     """Seed the database with initial data for a fresh start."""
     db = SessionLocal()
     try:
-        # Seed Admin user
-        if not db.query(User).filter(User.username == "admin").first():
-            db.add(User(
-                username="admin",
-                hashed_password=pwd_context.hash("admin123"),
-                role="Admin",
-                full_name="Mall Administrator",
-                preferences={},
-            ))
-        if not db.query(User).filter(User.username == "staff").first():
-            db.add(User(
-                username="staff",
-                hashed_password=pwd_context.hash("staff123"),
-                role="Staff",
-                full_name="Mall Staff",
-                preferences={},
-            ))
+        # Seed demo users used by the current login experience.
+        demo_users = [
+            ("admin", "admin123", "Admin", "Mall Administrator"),
+            ("manager", "manager123", "Manager", "Mall Operations Manager"),
+            ("owner", "owner123", "Owner", "Flagship Shop Owner"),
+            ("analyst", "analyst123", "Analyst", "Mall Intelligence Analyst"),
+            ("staff", "staff123", "Staff", "Mall Staff"),
+        ]
+        for username, password, role, full_name in demo_users:
+            if not db.query(User).filter(User.username == username).first():
+                db.add(User(
+                    username=username,
+                    hashed_password=pwd_context.hash(password),
+                    role=role,
+                    full_name=full_name,
+                    preferences={},
+                ))
         db.commit()
 
         # Seed Shops
@@ -70,9 +74,9 @@ def seed_database():
             admin = db.query(User).filter(User.username == "admin").first()
             if admin:
                 sample_tasks = [
-                    Task(title="Review at-risk shop reports", description="Analyze GNC and Levi's performance data", priority="High", status="In Progress", assigned_to=admin.id, deadline=datetime.datetime.utcnow() + datetime.timedelta(days=1)),
-                    Task(title="Negotiate rent renewal for Apple Store", description="Premium performance warrants 5% rent increase", priority="Medium", status="Pending", assigned_to=admin.id, deadline=datetime.datetime.utcnow() + datetime.timedelta(days=7)),
-                    Task(title="Deploy new parking sensors", description="Install smart sensors in Level 3 slots", priority="Low", status="Pending", assigned_to=admin.id, deadline=datetime.datetime.utcnow() + datetime.timedelta(days=14)),
+                    Task(title="Review at-risk shop reports", description="Analyze GNC and Levi's performance data", priority="High", status="In Progress", assigned_to=admin.id, deadline=_utcnow() + datetime.timedelta(days=1)),
+                    Task(title="Negotiate rent renewal for Apple Store", description="Premium performance warrants 5% rent increase", priority="Medium", status="Pending", assigned_to=admin.id, deadline=_utcnow() + datetime.timedelta(days=7)),
+                    Task(title="Deploy new parking sensors", description="Install smart sensors in Level 3 slots", priority="Low", status="Pending", assigned_to=admin.id, deadline=_utcnow() + datetime.timedelta(days=14)),
                 ]
                 db.add_all(sample_tasks)
                 db.commit()

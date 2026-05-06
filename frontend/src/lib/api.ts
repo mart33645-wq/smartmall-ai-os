@@ -1,18 +1,21 @@
 import axios from 'axios';
+import toast from 'react-hot-toast';
 
 import type { AuthUser } from '../store/useStore';
+import { getStoredLang } from '../i18n/runtimeText';
 
 const USER_STORAGE_KEY = 'smartmall_user';
+const DEFAULT_BACKEND_PORT = '8010';
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 
 const getDefaultApiBaseUrl = () => {
   if (typeof window === 'undefined') {
-    return 'http://127.0.0.1:8000';
+    return `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`;
   }
 
   const { protocol, hostname } = window.location;
-  return `${protocol}//${hostname}:8000`;
+  return `${protocol}//${hostname}:${DEFAULT_BACKEND_PORT}`;
 };
 
 export const API_BASE_URL = trimTrailingSlash(
@@ -64,7 +67,17 @@ api.interceptors.response.use(
       } catch {
         /* ignore */
       }
-      window.location.reload();
+      // Redirect to login page instead of blank reload to break infinite loops
+      window.location.href = '/login';
+    } else if (err.response?.data?.detail) {
+      toast.error(err.response.data.detail);
+    } else {
+      toast.error(
+        err.message ||
+          (getStoredLang() === 'ar'
+            ? 'حدث خطأ غير متوقع أثناء الاتصال بالخادم'
+            : 'An unexpected error occurred while contacting the server'),
+      );
     }
     return Promise.reject(err);
   },

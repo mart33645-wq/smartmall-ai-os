@@ -29,7 +29,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8000:8000"
+      - "8010:8010"
     environment:
       DATABASE_URL: postgresql://user:password@db/smartmall
       REDIS_URL: redis://redis:6379

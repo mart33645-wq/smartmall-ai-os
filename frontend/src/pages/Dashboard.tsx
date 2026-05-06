@@ -1,223 +1,324 @@
-import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import {
-  Activity, Users, Zap, Shield,
-  TrendingUp, AlertTriangle, DollarSign, Store, Cpu
-} from 'lucide-react';
-import { DigitalTwin } from '../components/DigitalTwin';
-import { AIAssistantWidget } from '../components/AIAssistantWidget';
-import { GamificationWidget } from '../components/GamificationWidget';
-import SimulationModal from '../components/SimulationModal';
-import { useStore } from '../store/useStore';
-import { useLang } from '../i18n/LangContext';
+import { Activity, Bot, Clock, DollarSign, Store, TrendingUp, Users } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { api } from '../lib/api';
+
 import { AppShell } from '../components/AppShell';
+import { useLang } from '../i18n/LangContext';
+import { formatCurrency, formatNumber, formatPercent, localizePriority, localizeTaskStatus } from '../i18n/format';
+import { api } from '../lib/api';
+import { useStore } from '../store/useStore';
 
-type AccentColor = 'indigo' | 'violet' | 'amber' | 'sky';
+type RecentTask = {
+  id: number;
+  title: string;
+  priority: string;
+  status: string;
+  deadline?: string;
+};
 
-interface StatWidgetProps {
-  icon: typeof Activity;
+type ParkingStatsLike = {
+  total: number;
+  occupied: number;
+  available: number;
+  occupancy_pct: number;
+  ev_total: number;
+  ev_occupied: number;
+  prediction_next_hour: number;
+  status: string;
+};
+
+const StatWidget = ({
+  label,
+  value,
+  trend,
+  icon: Icon,
+  tone,
+}: {
   label: string;
-  value: string | number;
+  value: string;
   trend: string;
-  trendPositive?: boolean;
-  color: AccentColor;
-}
-
-const colorClasses: Record<AccentColor, { text: string; bg: string }> = {
-  indigo: { text: 'text-indigo-400', bg: 'bg-indigo-500/10' },
-  violet: { text: 'text-violet-400', bg: 'bg-violet-500/10' },
-  amber: { text: 'text-amber-400', bg: 'bg-amber-500/10' },
-  sky: { text: 'text-sky-400', bg: 'bg-sky-500/10' },
-};
-
-const StatWidget = ({ icon: Icon, label, value, trend, trendPositive, color }: StatWidgetProps) => {
-  const palette = colorClasses[color];
-
-  return (
+  icon: typeof Activity;
+  tone: string;
+}) => (
   <motion.div
-    initial={{ opacity: 0, y: 20 }}
+    initial={{ opacity: 0, y: 12 }}
     animate={{ opacity: 1, y: 0 }}
-    className="glass p-6 rounded-[2rem] border border-white/10 relative overflow-hidden group hover:scale-[1.02] transition-transform"
+    className="glass rounded-[2rem] border border-white/10 p-6"
   >
-    <div className={`absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-20 transition-opacity ${palette.text}`}>
-      <Icon size={48} />
-    </div>
-    <div className="flex items-center gap-3 mb-4">
-      <div className={`p-2.5 rounded-xl ${palette.bg} ${palette.text}`}>
-        <Icon size={20} />
+    <div className="mb-4 flex items-center gap-3">
+      <div className={`rounded-2xl p-2.5 ${tone}`}>
+        <Icon size={18} />
       </div>
-      <h3 className="text-xs font-bold text-slate-500 uppercase tracking-[0.2em]">{label}</h3>
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">{label}</p>
     </div>
-    <div className="flex items-end justify-between">
-      <div className="text-3xl font-black text-white tracking-tighter">{value}</div>
-      <div className={`text-xs font-bold ${trendPositive !== false ? 'text-emerald-400' : 'text-rose-400'} flex items-center gap-1`}>
-        <TrendingUp size={12} className={trendPositive === false ? 'rotate-180' : ''} />
-        {trend}
-      </div>
-    </div>
+    <p className="text-3xl font-black text-white">{value}</p>
+    <p className="mt-2 text-sm text-slate-400">{trend}</p>
   </motion.div>
-  );
-};
+);
 
 export default function Dashboard() {
-  const { t } = useLang();
-  const { shops, alerts, analytics, setShops, setAlerts, setAnalytics } = useStore();
-  const [isSimOpen, setIsSimOpen] = useState(false);
+  const { t, lang } = useLang();
+  const navigate = useNavigate();
+  const { shops, analytics, setShops, setAnalytics } = useStore();
+  const [recentTasks, setRecentTasks] = useState<RecentTask[]>([]);
+  const [parkingStats, setParkingStats] = useState<ParkingStatsLike | null>(null);
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
-        const [shopRes, alertRes, analyticsRes] = await Promise.all([
-          api.get('/api/shops'),
-          api.get('/api/alerts'),
+        const [shopsResponse, analyticsResponse, tasksResponse, parkingResponse] = await Promise.all([
+          api.get('/api/shops/'),
           api.get('/api/analytics/overview'),
+          api.get('/api/tasks/').catch(() => ({ data: [] })),
+          api.get('/api/parking/stats').catch(() => ({ data: null })),
         ]);
-        setShops(shopRes.data);
-        setAlerts(alertRes.data);
-        setAnalytics(analyticsRes.data);
-      } catch (e) {
-        console.error('Dashboard fetch error:', e);
+
+        setShops(shopsResponse.data);
+        setAnalytics(analyticsResponse.data);
+        setRecentTasks((tasksResponse.data as RecentTask[]).slice(0, 4));
+        setParkingStats(parkingResponse.data as ParkingStatsLike | null);
+      } catch (error) {
+        console.error('Dashboard fetch error:', error);
       }
     };
-    fetchAll();
-  }, [setAlerts, setAnalytics, setShops]);
 
-  const totalRevenue = analytics?.total_revenue ?? shops.reduce((acc, s) => acc + (s.daily_revenue || 0), 0);
-  const totalVisitors = analytics?.total_visitors ?? shops.reduce((acc, s) => acc + (s.visitor_count || 0), 0);
-  const activeAlerts = analytics?.active_alerts ?? alerts.filter(a => !a.is_resolved).length;
-  const shopsAtRisk = analytics?.shops_at_risk ?? shops.filter(s => s.is_at_risk).length;
-  const totalShopsLimit = analytics?.total_shops ?? shops.length;
+    void fetchAll();
+  }, [setAnalytics, setShops]);
 
-  const unresolvedAlerts = alerts.filter(a => !a.is_resolved).slice(0, 4);
+  const totalRevenue = analytics?.total_revenue ?? shops.reduce((sum, shop) => sum + (shop.daily_revenue || 0), 0);
+  const totalVisitors = analytics?.total_visitors ?? shops.reduce((sum, shop) => sum + (shop.visitor_count || 0), 0);
+  const shopsAtRisk = analytics?.shops_at_risk ?? shops.filter((shop) => shop.is_at_risk).length;
+  const totalShops = analytics?.total_shops ?? shops.length;
+  const forecastRevenue = Math.round(totalRevenue * (shopsAtRisk > 0 ? 1.04 : 1.08));
+
+  const aiHighlights = [
+    lang === 'ar'
+      ? `يتوقع النظام إيرادًا يوميًا قريبًا من ${formatCurrency(forecastRevenue, lang)} إذا استمر الطلب الحالي.`
+      : `Projected daily revenue is trending toward ${formatCurrency(forecastRevenue, lang)} if current demand holds.`,
+    lang === 'ar'
+      ? `${formatNumber(shopsAtRisk, lang)} محل يحتاج متابعة مباشرة لتقليل مخاطر التراجع التجاري.`
+      : `${formatNumber(shopsAtRisk, lang)} shops need direct attention to reduce commercial risk.`,
+    lang === 'ar'
+      ? `إشغال المواقف قد يصل إلى ${formatPercent(parkingStats?.prediction_next_hour ?? 0, lang)} خلال الساعة القادمة.`
+      : `Parking occupancy may reach ${formatPercent(parkingStats?.prediction_next_hour ?? 0, lang)} within the next hour.`,
+  ];
+
+  const assistantPrompts = [
+    lang === 'ar' ? 'حلل أضعف نقطة في المشروع الآن.' : 'Analyze the weakest area in the project right now.',
+    lang === 'ar' ? 'رتب المهام الحالية حسب الأولوية.' : 'Reprioritize the current task backlog.',
+    lang === 'ar' ? 'اشرح لي أي مفهوم تقني أو تجاري ببساطة.' : 'Explain any technical or business concept simply.',
+  ];
 
   const exportPdf = async () => {
+    const newWindow = window.open('', '_blank');
+    if (newWindow) {
+      newWindow.document.write(lang === 'ar' ? 'جاري تجهيز التقرير...' : 'Generating report...');
+    }
+
     try {
-      const res = await api.get('/api/reports/export/pdf', { responseType: 'blob' });
-      const url = URL.createObjectURL(res.data);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'SmartMall_Performance_Report.pdf';
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success('Report downloaded');
+      const response = await api.get('/api/reports/export/pdf', {
+        params: { lang },
+        responseType: 'blob',
+      });
+
+      const url = URL.createObjectURL(response.data);
+      if (newWindow) {
+        newWindow.location.href = url;
+      } else {
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = lang === 'ar' ? 'smartmall-report-ar.pdf' : 'smartmall-report-en.pdf';
+        anchor.click();
+      }
+
+      toast.success(
+        lang === 'ar'
+          ? 'تم تجهيز التقرير. يمكنك طباعته أو تنزيله.'
+          : 'Report generated. You can now print or download it.',
+      );
     } catch {
-      toast.error('Could not export PDF');
+      if (newWindow) {
+        newWindow.close();
+      }
+      toast.error(t('reportDownloadFailed'));
     }
   };
 
   return (
-    <AppShell mainClassName="custom-scrollbar relative flex flex-col gap-8 font-inter">
-        <motion.header
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex justify-between items-end"
-        >
-          <div>
-            <div className="flex items-center gap-2 text-indigo-500 font-black text-[10px] tracking-[0.4em] mb-2 uppercase">
-              <Activity size={12} />
-              Command Center
-            </div>
-            <h1 className="text-6xl font-black tracking-tighter">
-              {t('smartMallOS')} <span className="text-indigo-500">OS</span>
-            </h1>
+    <AppShell mainClassName="custom-scrollbar relative flex flex-col gap-8">
+      <motion.header
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between"
+      >
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.35em] text-cyan-300">
+            <Activity size={12} />
+            {t('commandCenter')}
           </div>
-          
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              onClick={exportPdf}
-              className="px-6 py-3 rounded-2xl glass border border-white/5 hover:bg-white/5 text-sm font-bold flex items-center gap-2 transition-all"
-            >
-              <DollarSign size={16} />
-              Intelligence Report
-            </button>
-            <div className="px-4 py-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-sm font-bold flex items-center gap-3">
-              <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_10px_#10b981]" />
-              Systems Online
-            </div>
-          </div>
-        </motion.header>
-
-        {/* Intelligence Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <StatWidget icon={Users} label={t('todayVisitors')} value={totalVisitors.toLocaleString()} trend={analytics ? 'Live feed' : '—'} trendPositive color="indigo" />
-          <StatWidget icon={Store} label="Managed Nodes" value={totalShopsLimit} trend={`${shopsAtRisk} at risk`} trendPositive={shopsAtRisk === 0} color="violet" />
-          <StatWidget icon={DollarSign} label={t('dailyRevenue')} value={`$${totalRevenue.toLocaleString()}`} trend={analytics ? 'Synced' : '—'} trendPositive color="amber" />
-          <StatWidget icon={Shield} label={t('activeAlerts')} value={activeAlerts} trend={activeAlerts > 2 ? 'Action' : 'Secure'} trendPositive={activeAlerts <= 2} color="sky" />
+          <h1 className="text-5xl font-black tracking-tight text-white">
+            {t('smartMallOS')} <span className="text-cyan-300">OS</span>
+          </h1>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-          {/* Middle: Visualization & Ops */}
-          <div className="xl:col-span-8 flex flex-col gap-8">
-            <section className="glass rounded-[3rem] border border-white/5 p-8 relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity pointer-events-none">
-                <Cpu size={120} />
-              </div>
-              <div className="flex justify-between items-center mb-8">
-                <div>
-                  <h2 className="text-2xl font-black tracking-tight">{t('digitalTwinVisualization') || 'Universal Digital Twin Scan'}</h2>
-                  <p className="text-xs text-slate-500 mt-1">Real-time spatial data synthesis across {shops.length} nodes</p>
-                </div>
-              </div>
-              <DigitalTwin />
-            </section>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-               <GamificationWidget />
-               <div className="glass p-8 rounded-[3rem] border border-white/5 flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-lg font-bold mb-2 flex items-center gap-2">
-                       <Zap size={18} className="text-amber-400" />
-                       Strategic Simulation
-                    </h3>
-                    <p className="text-sm text-slate-500 mb-6 italic">Forecast revenue based on dynamic variables.</p>
-                  </div>
-                  <button 
-                    onClick={() => setIsSimOpen(true)}
-                    className="w-full py-4 rounded-2xl bg-indigo-600 font-bold text-white shadow-[0_8px_32px_rgba(99,102,241,0.3)] hover:bg-indigo-500 transition-all transform hover:-translate-y-1"
-                  >
-                     Initiate Scenario Analysis
-                  </button>
-               </div>
-            </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => void exportPdf()}
+            className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-bold text-slate-200 transition hover:text-white"
+          >
+            <DollarSign size={16} />
+            {t('intelligenceReport')}
+          </button>
+          <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-200">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            {t('systemsOnline')}
           </div>
+        </div>
+      </motion.header>
 
-          <aside className="xl:col-span-4 flex flex-col gap-6">
-            <div className="glass p-8 rounded-[3rem] border border-white/5 flex-1">
-              <h3 className="text-lg font-bold mb-6 flex items-center gap-2 uppercase tracking-tighter">
-                <Activity size={18} className="text-rose-400" />
-                Neural Alerts
-              </h3>
-              <div className="space-y-4">
-                {unresolvedAlerts.map((a) => (
-                  <motion.div
-                    key={a.id}
-                    className={`p-5 rounded-3xl border flex gap-4 transition-all hover:translate-x-1 ${
-                      a.type === 'CRITICAL'
-                        ? 'bg-rose-500/5 border-rose-500/20'
-                        : a.type === 'WARNING'
-                        ? 'bg-amber-500/5 border-amber-500/20'
-                        : 'bg-indigo-500/5 border-indigo-500/20'
-                    }`}
-                  >
-                    <div className="p-2 rounded-xl h-fit bg-white/5">
-                        <AlertTriangle size={18} className={a.type === 'CRITICAL' ? 'text-rose-500' : 'text-amber-500'} />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-black text-white uppercase tracking-[0.1em]">{a.type}</h4>
-                      <p className="text-sm text-slate-400 mt-1 leading-snug">{a.message}</p>
-                    </div>
-                  </motion.div>
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+        <StatWidget
+          icon={Users}
+          label={t('todayVisitors')}
+          value={formatNumber(totalVisitors, lang)}
+          trend={lang === 'ar' ? 'متابعة مباشرة لحركة الزوار' : 'Live visitor flow'}
+          tone="bg-cyan-500/10 text-cyan-200"
+        />
+        <StatWidget
+          icon={Store}
+          label={t('managedNodes')}
+          value={formatNumber(totalShops, lang)}
+          trend={lang === 'ar' ? `${formatNumber(shopsAtRisk, lang)} في خطر` : `${formatNumber(shopsAtRisk, lang)} at risk`}
+          tone="bg-violet-500/10 text-violet-200"
+        />
+        <StatWidget
+          icon={DollarSign}
+          label={t('dailyRevenue')}
+          value={formatCurrency(totalRevenue, lang)}
+          trend={lang === 'ar' ? 'إيرادات حية من جميع المحلات' : 'Live revenue from all stores'}
+          tone="bg-amber-500/10 text-amber-200"
+        />
+      </div>
+
+      <div className="grid gap-8 xl:grid-cols-[minmax(0,1.6fr)_420px]">
+        <section className="space-y-6">
+          <div className="grid gap-5 md:grid-cols-2">
+            <div className="glass rounded-[2rem] border border-white/10 p-6">
+              <div className="mb-4 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-cyan-200">
+                <TrendingUp size={14} />
+                {t('shopAiPortfolioSummary')}
+              </div>
+              <div className="space-y-3">
+                {aiHighlights.map((highlight) => (
+                  <div key={highlight} className="rounded-2xl border border-white/8 bg-white/4 p-4 text-sm leading-6 text-slate-300">
+                    {highlight}
+                  </div>
                 ))}
               </div>
             </div>
-            <AIAssistantWidget />
-          </aside>
-        </div>
 
-        <SimulationModal isOpen={isSimOpen} onClose={() => setIsSimOpen(false)} />
+            <div className="glass rounded-[2rem] border border-white/10 p-6">
+              <div className="mb-4 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-cyan-200">
+                <Clock size={14} />
+                {t('activeTasks')}
+              </div>
+              <div className="space-y-3">
+                {recentTasks.length ? (
+                  recentTasks.map((task) => (
+                    <div key={task.id} className="rounded-2xl border border-white/8 bg-white/4 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-bold text-white">{task.title}</p>
+                        <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] font-bold text-slate-300">
+                          {localizeTaskStatus(task.status, lang)}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
+                        <span>{localizePriority(task.priority, lang)}</span>
+                        <span>{task.deadline ? new Date(task.deadline).toLocaleDateString() : '-'}</span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-slate-500">{t('noPendingTasks')}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="glass rounded-[2rem] border border-white/10 p-6">
+            <div className="mb-4 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-cyan-200">
+              <Store size={14} />
+              {t('parkingOccupancy')}
+            </div>
+            {parkingStats ? (
+              <>
+                <div className="mb-3 flex items-end justify-between">
+                  <p className="text-4xl font-black text-white">{formatPercent(parkingStats.occupancy_pct, lang)}</p>
+                  <p className="text-sm text-slate-500">
+                    {formatNumber(parkingStats.occupied, lang)}/{formatNumber(parkingStats.total, lang)}
+                  </p>
+                </div>
+                <div className="h-2 rounded-full bg-white/5">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-indigo-500"
+                    style={{ width: `${parkingStats.occupancy_pct}%` }}
+                  />
+                </div>
+                <p className="mt-3 text-sm text-slate-400">
+                  {lang === 'ar'
+                    ? `الذروة المتوقعة خلال ساعة: ${formatPercent(parkingStats.prediction_next_hour, lang)}`
+                    : `Expected peak within one hour: ${formatPercent(parkingStats.prediction_next_hour, lang)}`}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-slate-500">
+                {lang === 'ar' ? 'لا توجد بيانات مواقف متاحة حاليًا.' : 'No parking data is available right now.'}
+              </p>
+            )}
+          </div>
+        </section>
+
+        <aside className="glass rounded-[2rem] border border-white/10 p-6">
+          <div className="mb-5 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-cyan-200">
+            <Bot size={14} />
+            {lang === 'ar' ? 'مساحة عمل المساعد' : 'Assistant workspace'}
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-[1.5rem] border border-cyan-400/20 bg-cyan-500/8 p-4">
+              <p className="text-sm font-bold text-white">
+                {lang === 'ar' ? 'المساعد أصبح أذكى وأوسع' : 'The assistant is smarter and larger now'}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                {lang === 'ar'
+                  ? 'يمكنه الرد على أسئلة المشروع والأسئلة العامة داخل مساحة عمل أكبر وأنظف.'
+                  : 'It can answer project questions and general questions inside a larger, cleaner workspace.'}
+              </p>
+            </div>
+
+            {assistantPrompts.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => navigate('/assistant', { state: { prompt } })}
+                className="w-full rounded-[1.4rem] border border-white/8 bg-white/4 px-4 py-3 text-left text-sm text-slate-200 transition hover:border-cyan-400/20 hover:bg-cyan-400/8"
+              >
+                {prompt}
+              </button>
+            ))}
+
+            <button
+              type="button"
+              onClick={() => navigate('/assistant')}
+              className="w-full rounded-[1.5rem] bg-gradient-to-r from-cyan-500 to-indigo-500 px-4 py-3 text-sm font-black text-white transition hover:brightness-110"
+            >
+              {lang === 'ar' ? 'فتح مساحة المساعد' : 'Open assistant workspace'}
+            </button>
+          </div>
+        </aside>
+      </div>
     </AppShell>
   );
 }

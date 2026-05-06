@@ -253,6 +253,8 @@ export const translations = {
     lightMode: 'الوضع المضيء',
     logoutConfirm: 'هل أنت متأكد من تسجيل الخروج؟',
     languageLabel: 'اللغة',
+    adminUtils: 'أدوات المشرف',
+    adminUtilsDesc: 'فقط للمسؤولين: إعادة بناء قاعدة البيانات أو تحميل بيانات محاكاة جديدة.',
 
     // Reports
     generatingReport: 'جارٍ توليد التقرير...',
@@ -580,6 +582,8 @@ export const translations = {
     lightMode: 'Light Mode',
     logoutConfirm: 'Are you sure you want to logout?',
     languageLabel: 'Language',
+    adminUtils: 'Administrator Utilities',
+    adminUtilsDesc: 'For system admins only: Rebuild database or load new simulation scenarios.',
     english: 'English',
     arabic: 'Arabic',
     

@@ -175,3 +175,27 @@ html, body, #root {
   50% { transform: translateY(-10px); }
 }
 
+/* RTL Polish */
+[dir="rtl"] {
+  font-family: 'Cairo', sans-serif;
+}
+
+/* Logical property support */
+@supports (inset-inline: 0) {
+  .ps-absolute-end { inset-inline-end: 0; }
+  .ps-absolute-start { inset-inline-start: 0; }
+}
+
+[dir="rtl"] .ms-auto { margin-right: auto; margin-left: 0; }
+[dir="ltr"] .ms-auto { margin-left: auto; margin-right: 0; }
+
+/* Mirror Icons where appropriate */
+[dir="rtl"] .rtl-mirror {
+  transform: scaleX(-1);
+}
+
+/* Fix for charts and legends in RTL */
+[dir="rtl"] .recharts-legend-wrapper {
+  direction: ltr; /* Graphs typically stay LTR for axes consistency */
+}
+
