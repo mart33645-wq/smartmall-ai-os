@@ -22,6 +22,13 @@ import { useLang } from '../i18n/LangContext';
 import { formatCurrency, formatNumber, formatPercent } from '../i18n/format';
 import { useStore } from '../store/useStore';
 import { api } from '../lib/api';
+import {
+  demoAnalyticsOverview,
+  demoRevenueChart,
+  demoShopPerformance,
+  demoVisitorTrends,
+} from '../lib/demoData';
+import toast from 'react-hot-toast';
 
 const COLORS = ['#06b6d4', '#6366f1', '#10b981', '#f59e0b', '#ef4444'];
 
@@ -136,11 +143,16 @@ const Analytics = () => {
         setShopPerf(performanceResponse.data);
       } catch (error) {
         console.error('Analytics fetch error:', error);
+        setAnalytics(demoAnalyticsOverview);
+        setRevenueChart(demoRevenueChart);
+        setVisitorTrends(demoVisitorTrends);
+        setShopPerf(demoShopPerformance);
+        toast.error(lang === 'ar' ? 'تم تحميل التحليلات في وضع احتياطي' : 'Analytics loaded in fallback mode');
       }
     };
 
     void fetchAll();
-  }, [setAnalytics]);
+  }, [lang, setAnalytics]);
 
   const localizedRevenueChart = revenueChart.map((point) => ({
     ...point,

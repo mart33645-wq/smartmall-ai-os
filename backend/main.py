@@ -66,15 +66,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Trailing slash normalization middleware to prevent 307 redirects dropping auth headers
-from starlette.requests import Request
-@app.middleware("http")
-async def normalize_trailing_slash(request: Request, call_next):
-    if request.url.path != "/" and request.url.path.endswith("/"):
-        # This is a bit advanced, but better to fix frontend calls. 
-        # For now, we'll just log or handle if needed.
-        pass
-    return await call_next(request)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(shops.router, prefix="/api/shops", tags=["Shop Management"])
@@ -106,7 +97,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+import traceback
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request, exc):
@@ -115,14 +108,19 @@ async def http_exception_handler(request, exc):
         content={"detail": exc.detail, "type": "http_error"},
     )
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=422,
+        content={"detail": str(exc.errors()), "type": "validation_error"},
+    )
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    # Log the full error to stderr for debugging
-    import traceback
     traceback.print_exc()
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal System Error - Neural link interrupted", "type": "system_error"},
+        content={"detail": "Internal System Error", "type": "system_error"},
     )
 
 

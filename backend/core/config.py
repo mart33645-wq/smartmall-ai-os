@@ -68,8 +68,8 @@ class AppSettings:
                 api_key=os.getenv("GEMINI_API_KEY", "").strip(),
                 model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash",
                 base_url=os.getenv("GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"),
-                timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS", "20")),
-                memory_window=max(4, int(os.getenv("GEMINI_MEMORY_WINDOW", "10"))),
+                timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS", "15")),
+                memory_window=max(4, int(os.getenv("GEMINI_MEMORY_WINDOW", "12"))),
                 temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.3")),
             ),
         )

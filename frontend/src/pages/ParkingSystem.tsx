@@ -8,6 +8,7 @@ import { AppShell } from '../components/AppShell';
 import { useLang } from '../i18n/LangContext';
 import { formatNumber, formatPercent, localizeParkingType } from '../i18n/format';
 import { api } from '../lib/api';
+import { demoParkingSlots, demoParkingStats } from '../lib/demoData';
 import { useStore, type ParkingSlot } from '../store/useStore';
 
 interface SlotCellProps {
@@ -53,6 +54,8 @@ const ParkingSystem = () => {
       setParkingStats(statsResponse.data);
     } catch {
       toast.error(t('fetchParkingFailed'));
+      setParkingSlots(demoParkingSlots);
+      setParkingStats(demoParkingStats);
     } finally {
       setLoading(false);
     }

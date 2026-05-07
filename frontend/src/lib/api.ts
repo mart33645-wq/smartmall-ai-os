@@ -7,6 +7,7 @@ import { getStoredLang } from '../i18n/runtimeText';
 const USER_STORAGE_KEY = 'smartmall_user';
 const DEFAULT_BACKEND_PORT = '8010';
 const LOCAL_BROWSER_HOSTS = new Set(['127.0.0.1', 'localhost']);
+const VERCEL_BACKEND_ORIGIN = 'https://smartmall-backend.vercel.app';
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 
@@ -19,6 +20,10 @@ const getDefaultApiBaseUrl = () => {
 
   if (LOCAL_BROWSER_HOSTS.has(hostname)) {
     return `${protocol}//${hostname}:${DEFAULT_BACKEND_PORT}`;
+  }
+
+  if (hostname.endsWith('.vercel.app') || hostname.endsWith('.ammartahoun.online')) {
+    return VERCEL_BACKEND_ORIGIN;
   }
 
   return origin;
@@ -80,10 +85,11 @@ api.interceptors.response.use(
 
     if (err.response?.status === 401 && !url.includes('/api/auth/login')) {
       clearStoredSession();
-
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-        window.location.assign('/login');
-      }
+      toast.error(
+        getStoredLang() === 'ar'
+          ? 'انتهت الجلسة، يتم الآن إعادة تفعيل الدخول التلقائي'
+          : 'Session expired, auto sign-in will be retried',
+      );
     } else if (err.response?.data?.detail) {
       toast.error(err.response.data.detail);
     } else {

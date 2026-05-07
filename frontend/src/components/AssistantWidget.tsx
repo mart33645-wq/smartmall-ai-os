@@ -30,6 +30,7 @@ import type {
   AssistantSystemAnalysis,
 } from '../lib/assistantApi';
 import { assistantApi } from '../lib/assistantApi';
+import { offlineAssistantAnalysis, offlineAssistantChat, offlineAssistantStatus } from '../lib/demoData';
 import { useStore } from '../store/useStore';
 
 const STORAGE_KEY = 'smartmall_assistant_conversation';
@@ -165,13 +166,14 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
   const [actionCatalog, setActionCatalog] = useState<AssistantAction[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [autoRunActions, setAutoRunActions] = useState(false);
+  const [autoRunActions, setAutoRunActions] = useState(true);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const panelVisible = isPage || isOpen;
+  const hasBackendSession = Boolean(user?.token);
   const providerBadge = status?.gemini_enabled ? 'Gemini' : lang === 'ar' ? 'احتياطي' : 'Fallback';
   const introLine =
     lang === 'ar'
@@ -203,13 +205,8 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
   }, [prefillMessage]);
 
   useEffect(() => {
-    if (!user?.token) {
-      setStatus(null);
-      setAnalysis(null);
-      setMessages([]);
-      setActionCatalog([]);
-      setConversationId(null);
-      writeStoredConversationId(null);
+    if (!hasBackendSession) {
+      setStatus(offlineAssistantStatus(lang));
       return;
     }
 
@@ -217,16 +214,16 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
       .getStatus()
       .then(setStatus)
       .catch(() => {
-        toast.error(t('assistantStatusUnavailable'));
+        setStatus(offlineAssistantStatus(lang));
       });
-  }, [t, user?.token]);
+  }, [hasBackendSession, lang, t]);
 
   useEffect(() => {
     writeStoredConversationId(conversationId);
   }, [conversationId]);
 
   useEffect(() => {
-    if (!panelVisible || !conversationId || messages.length > 0) {
+    if (!hasBackendSession || !panelVisible || !conversationId || messages.length > 0) {
       return;
     }
 
@@ -242,7 +239,7 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
       .finally(() => {
         setLoadingConversation(false);
       });
-  }, [conversationId, messages.length, panelVisible]);
+  }, [conversationId, hasBackendSession, messages.length, panelVisible]);
 
   useEffect(() => {
     if (!panelVisible || activeTab !== 'analysis' || loadingAnalysis || analysis) {
@@ -263,13 +260,17 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
   }, [messages]);
 
   const refreshAnalysis = async () => {
+    if (!hasBackendSession) {
+      setAnalysis(offlineAssistantAnalysis(lang));
+      return;
+    }
     setLoadingAnalysis(true);
     try {
       const nextAnalysis = await assistantApi.getSystemAnalysis(lang);
       setAnalysis(nextAnalysis);
       setActionCatalog((current) => mergeActions(current, nextAnalysis.suggested_actions));
     } catch {
-      toast.error(t('assistantRefreshFailed'));
+      setAnalysis(offlineAssistantAnalysis(lang));
     } finally {
       setLoadingAnalysis(false);
     }
@@ -293,12 +294,14 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
     setSending(true);
 
     try {
-      const response = await assistantApi.chat({
-        message: nextMessage,
-        conversation_id: conversationId,
-        allow_automation: autoRunActions,
-        lang,
-      });
+      const response = hasBackendSession
+        ? await assistantApi.chat({
+            message: nextMessage,
+            conversation_id: conversationId,
+            allow_automation: autoRunActions,
+            lang,
+          })
+        : offlineAssistantChat(nextMessage, lang);
 
       setConversationId(response.conversation_id);
       setActionCatalog((current) => mergeActions(current, response.suggested_actions));
@@ -336,10 +339,6 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
       setActionLoadingId(null);
     }
   };
-
-  if (!user?.token) {
-    return null;
-  }
 
   if (!isPage && location.pathname === '/assistant') {
     return null;

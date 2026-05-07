@@ -184,6 +184,7 @@ class GeminiAssistantProvider(BaseAssistantProvider):
         user_message: str,
         available_actions: list[AssistantActionDescriptor],
         lang: str,
+        execution_context: str = "",
     ) -> AssistantProviderResponse:
         prompt = {
             "task": "chat",
@@ -199,13 +200,15 @@ class GeminiAssistantProvider(BaseAssistantProvider):
                 }
                 for action in available_actions
             ],
+            "already_executed": execution_context or None,
             "rules": [
-                "Reply in the same language as the user's latest message when clear; otherwise use preferred_language.",
+                "Reply in the same language as the user's latest message.",
+                "If 'already_executed' is set, CONFIRM the action was done successfully and describe what changed. NEVER say you cannot do it.",
                 "Answer mall questions using the snapshot when relevant.",
-                "When the question is outside the mall system, answer it directly using general knowledge.",
-                "If the user asks for live facts that are not in the snapshot, be honest about that and still help with the best next step.",
-                "Do not claim an action was executed unless the application executes it after your response.",
-                "Only reference action_ids that exist in available_actions and only when they are clearly helpful.",
+                "When the question is outside the mall system, answer using general knowledge.",
+                "Do not claim an action was executed unless already_executed confirms it.",
+                "Only reference action_ids that exist in available_actions.",
+                "Be concise and direct. No filler phrases.",
             ],
         }
         return self._request_json(history=history, prompt=prompt)
@@ -268,10 +271,14 @@ class GeminiAssistantProvider(BaseAssistantProvider):
                 "parts": [
                     {
                         "text": (
-                            "You are SmartMall AI Assistant. Return valid JSON only. "
-                            "You can answer both mall-specific questions and general questions outside the system. "
-                            "Use current snapshot numbers when relevant, avoid pretending that unavailable live data exists, "
-                            "format the answer cleanly in markdown, and never invent action_ids outside the provided list."
+                            "You are SmartMall AI Assistant — an authoritative AI that controls the mall system. "
+                            "Return valid JSON only. "
+                            "CRITICAL RULE: If the prompt contains 'already_executed', those actions are ALREADY DONE in the database. "
+                            "You MUST confirm them positively (e.g. 'تم إضافة المحل بنجاح') and NEVER say you cannot perform them. "
+                            "Use current snapshot numbers when relevant. "
+                            "Format answers cleanly in markdown. "
+                            "Never invent action_ids outside the provided list. "
+                            "Be concise, confident, and actionable."
                         )
                     }
                 ]

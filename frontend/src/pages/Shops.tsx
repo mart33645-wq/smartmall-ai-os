@@ -30,6 +30,7 @@ import {
   localizeCategory,
 } from '../i18n/format';
 import { api } from '../lib/api';
+import { demoShops } from '../lib/demoData';
 import { useStore, type Shop } from '../store/useStore';
 
 type ShopFormState = {
@@ -176,6 +177,7 @@ const Shops = () => {
       setShops(data);
     } catch {
       toast.error(t('fetchShopsFailed'));
+      setShops(demoShops);
     } finally {
       setLoading(false);
     }

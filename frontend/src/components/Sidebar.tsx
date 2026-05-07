@@ -66,7 +66,8 @@ const Sidebar = ({ onLogout }: { onLogout?: () => void } = {}) => {
     }
 
     setUser(null);
-    navigate('/login', { replace: true });
+    navigate('/', { replace: true });
+    window.location.reload();
   };
 
   const menuGroups = [

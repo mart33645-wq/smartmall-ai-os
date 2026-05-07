@@ -8,6 +8,7 @@ import { AppShell } from '../components/AppShell';
 import { useLang } from '../i18n/LangContext';
 import { formatCurrency, formatNumber, formatPercent, localizePriority, localizeTaskStatus } from '../i18n/format';
 import { api } from '../lib/api';
+import { demoAnalyticsOverview, demoParkingStats, demoShops, demoTasks } from '../lib/demoData';
 import { useStore } from '../store/useStore';
 
 type RecentTask = {
@@ -81,11 +82,16 @@ export default function Dashboard() {
         setParkingStats(parkingResponse.data as ParkingStatsLike | null);
       } catch (error) {
         console.error('Dashboard fetch error:', error);
+        setShops(demoShops);
+        setAnalytics(demoAnalyticsOverview);
+        setRecentTasks(demoTasks.slice(0, 4));
+        setParkingStats(demoParkingStats);
+        toast.error(lang === 'ar' ? 'تم تفعيل وضع العرض الاحتياطي للوحة القيادة' : 'Fallback dashboard mode has been enabled');
       }
     };
 
     void fetchAll();
-  }, [setAnalytics, setShops]);
+  }, [lang, setAnalytics, setShops]);
 
   const totalRevenue = analytics?.total_revenue ?? shops.reduce((sum, shop) => sum + (shop.daily_revenue || 0), 0);
   const totalVisitors = analytics?.total_visitors ?? shops.reduce((sum, shop) => sum + (shop.visitor_count || 0), 0);

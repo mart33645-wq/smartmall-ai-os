@@ -13,6 +13,7 @@ import {
   localizeTaskStatus,
 } from '../i18n/format';
 import { api } from '../lib/api';
+import { demoTasks } from '../lib/demoData';
 
 type TaskItem = {
   id: number;
@@ -194,7 +195,7 @@ const TaskManager = () => {
       setTasks(data);
     } catch {
       toast.error(t('operationFailed'));
-      setTasks([]);
+      setTasks(demoTasks);
     } finally {
       setLoading(false);
     }

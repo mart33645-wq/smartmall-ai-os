@@ -9,9 +9,7 @@ import { useStore } from './store/useStore';
 import { api } from './lib/api';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useWebSocket } from './lib/useWebSocket';
-import { ProtectedRoute } from './components/ProtectedRoute';
 
-const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const TaskManager = lazy(() => import('./pages/TaskManager'));
 const ParkingSystem = lazy(() => import('./pages/ParkingSystem'));
@@ -20,15 +18,6 @@ const Analytics = lazy(() => import('./pages/Analytics'));
 const AssistantPage = lazy(() => import('./pages/Alerts'));
 const Settings = lazy(() => import('./pages/Settings'));
 const AssistantWidget = lazy(() => import('./components/AssistantWidget'));
-
-const isLocalDemoHost = () => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  return ['127.0.0.1', 'localhost'].includes(window.location.hostname);
-};
-
 
 function App() {
   useWebSocket();
@@ -44,7 +33,7 @@ function App() {
       return;
     }
 
-    if (!isLocalDemoHost() || didAutoLoginRef.current) {
+    if (didAutoLoginRef.current) {
       setBooting(false);
       return;
     }
@@ -96,27 +85,18 @@ function App() {
               }
             >
               <Routes>
-                <Route
-                  path="/login"
-                  element={
-                    user?.token ? (
-                      <Navigate to="/" replace />
-                    ) : (
-                      <Login onLogin={(nextUser) => useStore.getState().setUser(nextUser)} />
-                    )
-                  }
-                />
-                <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-                <Route path="/tasks" element={<ProtectedRoute><TaskManager /></ProtectedRoute>} />
-                <Route path="/assistant" element={<ProtectedRoute><AssistantPage /></ProtectedRoute>} />
-                <Route path="/parking" element={<ProtectedRoute><ParkingSystem /></ProtectedRoute>} />
-                <Route path="/shops" element={<ProtectedRoute><Shops /></ProtectedRoute>} />
-                <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+                <Route path="/login" element={<Navigate to="/" replace />} />
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/tasks" element={<TaskManager />} />
+                <Route path="/assistant" element={<AssistantPage />} />
+                <Route path="/parking" element={<ParkingSystem />} />
+                <Route path="/shops" element={<Shops />} />
+                <Route path="/analytics" element={<Analytics />} />
                 <Route path="/alerts" element={<Navigate to="/assistant" replace />} />
-                <Route path="/settings" element={<ProtectedRoute><Settings onLogout={() => setUser(null)} /></ProtectedRoute>} />
-                <Route path="*" element={<Navigate to={user?.token ? '/' : '/login'} replace />} />
+                <Route path="/settings" element={<Settings onLogout={() => setUser(null)} />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
-              {user?.token ? <AssistantWidget /> : null}
+              <AssistantWidget />
             </Suspense>
           </ErrorBoundary>
         </Router>

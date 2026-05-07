@@ -13,6 +13,9 @@ smartmall.db
 
 frontend/src/lib/*.copy.txt
 frontend/dist/
+frontend/dist-verify/
+frontend/dist-verify-2/
+frontend/dist-verify-3/
 frontend/node_modules/
 node_modules/
 

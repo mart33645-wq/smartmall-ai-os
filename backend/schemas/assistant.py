@@ -23,7 +23,7 @@ class AssistantMessageView(BaseModel):
 class AssistantChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     conversation_id: str | None = None
-    allow_automation: bool = False
+    allow_automation: bool = True
     lang: str | None = Field(default=None, pattern="^(ar|en)$")
 
 

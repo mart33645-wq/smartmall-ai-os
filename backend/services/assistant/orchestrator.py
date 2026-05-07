@@ -48,18 +48,40 @@ class SmartMallAssistantOrchestrator:
             content=request.message,
         )
 
+        # Execute direct commands FIRST so Gemini can confirm them
+        executed_actions: list[AssistantActionExecutionResponse] = []
+        direct_results = []
+        if request.allow_automation:
+            direct_results = actions.execute_command_actions(
+                request.message,
+                actor_user_id=self._current_user.id,
+            )
+            executed_actions.extend(self._to_action_execution_view(r) for r in direct_results)
+
+        # Rebuild snapshot AFTER mutations so Gemini sees fresh data
         snapshot = self._context.build_snapshot(lang=lang)
         available_actions = actions.descriptors()
         history = self._history_for_provider(conversation.id)
+
+        # Inject execution results so Gemini confirms instead of refusing
+        execution_context = ""
+        if direct_results:
+            summaries = " | ".join(r.summary for r in direct_results)
+            execution_context = (
+                f"[تم التنفيذ التلقائي: {summaries}]"
+                if lang == "ar"
+                else f"[Auto-executed: {summaries}]"
+            )
+
         provider_response, used_fallback = self._generate_chat_response(
             history=history,
             snapshot=snapshot,
             user_message=request.message,
             available_actions=available_actions,
             lang=lang,
+            execution_context=execution_context,
         )
 
-        executed_actions: list[AssistantActionExecutionResponse] = []
         if request.allow_automation:
             for action_id in self._resolve_action_ids(request.message, provider_response.action_ids, actions):
                 if not actions.exists(action_id):
@@ -160,6 +182,8 @@ class SmartMallAssistantOrchestrator:
                 return self._gemini.generate_chat(**kwargs), False
             except AssistantProviderError:
                 pass
+        # Fallback doesn't use execution_context - remove it safely
+        kwargs.pop("execution_context", None)
         return self._fallback.generate_chat(**kwargs), True
 
     def _generate_system_analysis(self, **kwargs):
