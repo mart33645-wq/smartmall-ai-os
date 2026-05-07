@@ -23,6 +23,7 @@ from .context import MallContextService
 from .language import normalize_lang, resolve_chat_lang
 from .memory import ConversationMemoryService
 from .providers import AssistantProviderError, FallbackAssistantProvider, GeminiAssistantProvider
+from .tools import TOOL_DECLARATIONS, ToolExecutor
 
 
 class SmartMallAssistantOrchestrator:
@@ -48,47 +49,103 @@ class SmartMallAssistantOrchestrator:
             content=request.message,
         )
 
-        # Execute direct commands FIRST so Gemini can confirm them
-        executed_actions: list[AssistantActionExecutionResponse] = []
-        direct_results = []
-        if request.allow_automation:
-            direct_results = actions.execute_command_actions(
-                request.message,
-                actor_user_id=self._current_user.id,
-            )
-            executed_actions.extend(self._to_action_execution_view(r) for r in direct_results)
-
-        # Rebuild snapshot AFTER mutations so Gemini sees fresh data
         snapshot = self._context.build_snapshot(lang=lang)
-        available_actions = actions.descriptors()
         history = self._history_for_provider(conversation.id)
+        executor = ToolExecutor(self._db, actor_user_id=self._current_user.id)
+        executed_actions: list[AssistantActionExecutionResponse] = []
+        provider_response = None
+        used_fallback = False
 
-        # Inject execution results so Gemini confirms instead of refusing
-        execution_context = ""
-        if direct_results:
-            summaries = " | ".join(r.summary for r in direct_results)
-            execution_context = (
-                f"[تم التنفيذ التلقائي: {summaries}]"
-                if lang == "ar"
-                else f"[Auto-executed: {summaries}]"
+        # ── Try Gemini Function Calling (intelligent intent parsing) ──────────
+        if request.allow_automation and self._gemini.is_available():
+            try:
+                tool_calls, interim = self._gemini.generate_chat_with_tools(
+                    history=history,
+                    snapshot=snapshot,
+                    user_message=request.message,
+                    lang=lang,
+                    tool_declarations=TOOL_DECLARATIONS,
+                )
+
+                if tool_calls:
+                    # Execute every tool Gemini requested
+                    tool_results = []
+                    for call in tool_calls:
+                        result = executor.execute(call["name"], call["args"])
+                        tool_results.append({"name": call["name"], "result": result})
+                        # Convert to action execution view
+                        success = result.get("success", True)
+                        summary = self._tool_result_summary(call["name"], result, lang)
+                        executed_actions.append(AssistantActionExecutionResponse(
+                            action_id=f"tool_{call['name']}",
+                            title=call["name"].replace("_", " ").title(),
+                            summary=summary,
+                            affected_records=result.get("affected_shops") or result.get("completed_count") or result.get("started_count") or result.get("resolved_count") or result.get("freed_count") or (1 if success else 0),
+                            data=result,
+                            generated_at=datetime.datetime.now(datetime.UTC),
+                        ))
+
+                    # Rebuild snapshot after mutations
+                    snapshot = self._context.build_snapshot(lang=lang)
+
+                    # Turn 2: Gemini confirms what happened
+                    parts1 = interim.raw_payload.get("_parts1", [])
+                    provider_response = self._gemini.generate_chat_with_tools_turn2(
+                        history=history,
+                        snapshot=snapshot,
+                        user_message=request.message,
+                        lang=lang,
+                        tool_declarations=TOOL_DECLARATIONS,
+                        parts1=parts1,
+                        tool_results=tool_results,
+                    )
+                else:
+                    # No tool calls — Gemini just answered a question
+                    provider_response = interim
+
+            except AssistantProviderError:
+                pass  # Fall through to standard flow
+
+        # ── Standard flow (Gemini Q&A or Fallback) ────────────────────────────
+        if provider_response is None:
+            available_actions = actions.descriptors()
+
+            # Legacy keyword-based execution as safety net
+            if request.allow_automation:
+                direct_results = actions.execute_command_actions(
+                    request.message,
+                    actor_user_id=self._current_user.id,
+                )
+                snapshot = self._context.build_snapshot(lang=lang)
+                execution_context = ""
+                if direct_results:
+                    summaries = " | ".join(r.summary for r in direct_results)
+                    execution_context = (
+                        f"[تم التنفيذ التلقائي: {summaries}]" if lang == "ar"
+                        else f"[Auto-executed: {summaries}]"
+                    )
+                    for r in direct_results:
+                        executed_actions.append(self._to_action_execution_view(r))
+            else:
+                execution_context = ""
+
+            provider_response, used_fallback = self._generate_chat_response(
+                history=history,
+                snapshot=snapshot,
+                user_message=request.message,
+                available_actions=available_actions,
+                lang=lang,
+                execution_context=execution_context,
             )
 
-        provider_response, used_fallback = self._generate_chat_response(
-            history=history,
-            snapshot=snapshot,
-            user_message=request.message,
-            available_actions=available_actions,
-            lang=lang,
-            execution_context=execution_context,
-        )
+            if request.allow_automation:
+                for action_id in self._resolve_action_ids(request.message, provider_response.action_ids, actions):
+                    if not actions.exists(action_id):
+                        continue
+                    execution = actions.execute(action_id)
+                    executed_actions.append(self._to_action_execution_view(execution))
 
-        if request.allow_automation:
-            for action_id in self._resolve_action_ids(request.message, provider_response.action_ids, actions):
-                if not actions.exists(action_id):
-                    continue
-                execution = actions.execute(action_id)
-                executed_actions.append(self._to_action_execution_view(execution))
-
+        available_actions = actions.descriptors()
         assistant_payload = {
             "provider": provider_response.raw_payload.get("provider", self._provider_label(used_fallback)),
             "analysis": provider_response.analysis,
@@ -112,11 +169,53 @@ class SmartMallAssistantOrchestrator:
             analysis=provider_response.analysis,
             suggestions=provider_response.suggestions,
             follow_up_questions=provider_response.follow_up_questions,
-            suggested_actions=[self._to_action_view(action) for action in available_actions],
+            suggested_actions=[self._to_action_view(a) for a in available_actions],
             executed_actions=executed_actions,
             memory_entries=self._memory.message_count(conversation_id=conversation.id),
             generated_at=datetime.datetime.now(datetime.UTC),
         )
+
+    def _tool_result_summary(self, tool_name: str, result: dict, lang: str) -> str:
+        """Generate a human-readable summary for a tool execution result."""
+        if not result.get("success", True):
+            err = result.get("error", "Unknown error")
+            return f"❌ {err}"
+        summaries_ar = {
+            "add_shop": f"✅ تم إضافة المحل **{result.get('name')}** (الفئة: {result.get('category')}, الطابق {result.get('floor')}, الإيجار {result.get('rent_amount'):,.0f})",
+            "delete_shop": f"🗑️ تم حذف المحل **{result.get('deleted_shop')}**",
+            "adjust_shop_rent": f"📈 تم تعديل إيجار **{result.get('shop')}** من {result.get('old_rent'):,.0f} إلى {result.get('new_rent'):,.0f}",
+            "adjust_all_rents": f"📊 تم تعديل إيجارات {result.get('affected_shops')} محل بنسبة {result.get('change_percent')}%",
+            "set_shop_rent": f"💰 تم تحديد إيجار **{result.get('shop')}** بـ {result.get('new_rent'):,.0f}",
+            "add_task": f"✅ تم إنشاء مهمة: **{result.get('task', {}).get('title', '') if isinstance(result.get('task'), dict) else ''}**",
+            "complete_tasks": f"✅ تم إكمال {result.get('completed_count')} مهمة",
+            "start_tasks": f"🚀 تم بدء {result.get('started_count')} مهمة",
+            "resolve_alerts": f"✅ تم حل {result.get('resolved_count')} تنبيه",
+            "free_parking": f"🅿️ تم تحرير {result.get('freed_count')} موقف",
+            "list_shops": f"📋 يوجد {result.get('count')} محل",
+            "list_tasks": f"📋 يوجد {result.get('count')} مهمة",
+            "update_shop": f"✏️ تم تحديث بيانات **{result.get('shop')}**",
+        }
+        summaries_en = {
+            "add_shop": f"✅ Shop **{result.get('name')}** added (Category: {result.get('category')}, Floor {result.get('floor')}, Rent {result.get('rent_amount'):,.0f})",
+            "delete_shop": f"🗑️ Shop **{result.get('deleted_shop')}** removed",
+            "adjust_shop_rent": f"📈 Rent for **{result.get('shop')}** changed from {result.get('old_rent'):,.0f} to {result.get('new_rent'):,.0f}",
+            "adjust_all_rents": f"📊 Adjusted rents for {result.get('affected_shops')} shops by {result.get('change_percent')}%",
+            "set_shop_rent": f"💰 Rent for **{result.get('shop')}** set to {result.get('new_rent'):,.0f}",
+            "add_task": f"✅ Task created: **{result.get('task', {}).get('title', '') if isinstance(result.get('task'), dict) else ''}**",
+            "complete_tasks": f"✅ Completed {result.get('completed_count')} task(s)",
+            "start_tasks": f"🚀 Started {result.get('started_count')} task(s)",
+            "resolve_alerts": f"✅ Resolved {result.get('resolved_count')} alert(s)",
+            "free_parking": f"🅿️ Freed {result.get('freed_count')} parking slot(s)",
+            "list_shops": f"📋 Found {result.get('count')} shop(s)",
+            "list_tasks": f"📋 Found {result.get('count')} task(s)",
+            "update_shop": f"✏️ Updated **{result.get('shop')}**",
+        }
+        table = summaries_ar if lang == "ar" else summaries_en
+        try:
+            return table.get(tool_name, f"✅ {tool_name} executed")
+        except Exception:
+            return f"✅ {tool_name} executed"
+
 
     def get_system_analysis(self, lang: str = "en") -> AssistantSystemAnalysisResponse:
         normalized_lang = normalize_lang(lang)

@@ -338,6 +338,199 @@ class GeminiAssistantProvider(BaseAssistantProvider):
             return []
         return [str(item).strip() for item in value if str(item).strip()]
 
+    def generate_chat_with_tools(
+        self,
+        *,
+        history: list[dict[str, str]],
+        snapshot: MallSnapshot,
+        user_message: str,
+        lang: str,
+        tool_declarations: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], AssistantProviderResponse]:
+        """
+        Two-turn Gemini Function Calling flow:
+        Turn 1 → Gemini decides which tool(s) to call.
+        Turn 2 → Gemini confirms with natural language after seeing results.
+
+        Returns (tool_calls, final_response).
+        tool_calls is a list of {"name": str, "args": dict} dicts.
+        """
+        if not self.is_available():
+            raise AssistantProviderError("Gemini provider is not configured")
+
+        # Build conversation history
+        contents: list[dict] = [
+            {
+                "role": "model" if item["role"] == "assistant" else "user",
+                "parts": [{"text": item["content"]}],
+            }
+            for item in history
+            if item["role"] in {"user", "assistant"} and item["content"].strip()
+        ]
+
+        # Inject mall context + user message
+        context_block = {
+            "mall_snapshot_summary": snapshot.to_prompt_payload(),
+            "user_message": user_message,
+            "preferred_language": "Arabic" if lang == "ar" else "English",
+        }
+        contents.append({
+            "role": "user",
+            "parts": [{"text": json.dumps(context_block, ensure_ascii=False)}],
+        })
+
+        system_instruction = (
+            "You are SmartMall AI OS — the fully autonomous intelligence that manages this shopping mall. "
+            "You have FULL permissions: you can add, modify, or delete shops, tasks, alerts, and parking. "
+            "When the user gives a command in ANY language or phrasing, call the appropriate tool(s). "
+            "When the user asks a question (not a command), reply in natural language without calling tools. "
+            "ALWAYS reply in the same language the user used. "
+            "After tools are executed, confirm what was done clearly and concisely. "
+            "Never say you cannot perform an action — you have full access."
+        )
+
+        # ── Turn 1: Gemini decides which tool to call ─────────────────────────
+        payload_turn1 = {
+            "systemInstruction": {"parts": [{"text": system_instruction}]},
+            "tools": [{"functionDeclarations": tool_declarations}],
+            "contents": contents,
+            "generationConfig": {"temperature": self._config.temperature},
+        }
+
+        try:
+            r1 = httpx.post(
+                f"{self._config.base_url}/models/{self._config.model}:generateContent",
+                headers={"Content-Type": "application/json", "x-goog-api-key": self._config.api_key},
+                json=payload_turn1,
+                timeout=self._config.timeout_seconds,
+            )
+            r1.raise_for_status()
+            data1 = r1.json()
+        except httpx.HTTPError as exc:
+            raise AssistantProviderError(f"Gemini turn-1 failed: {exc}") from exc
+
+        # Parse function calls from response
+        candidates = data1.get("candidates") or []
+        parts1 = candidates[0].get("content", {}).get("parts", []) if candidates else []
+
+        tool_calls: list[dict[str, Any]] = []
+        text_parts: list[str] = []
+        for part in parts1:
+            if "functionCall" in part:
+                fc = part["functionCall"]
+                tool_calls.append({"name": fc.get("name", ""), "args": fc.get("args", {})})
+            if "text" in part:
+                text_parts.append(part["text"])
+
+        # If no function calls, Gemini just answered → wrap as response
+        if not tool_calls:
+            raw_text = " ".join(text_parts).strip() or "تمت المعالجة."
+            return [], AssistantProviderResponse(
+                answer=raw_text,
+                analysis=[],
+                suggestions=[],
+                follow_up_questions=[],
+                action_ids=[],
+                raw_payload={"provider": self.provider_name},
+            )
+
+        # We have tool calls — return them to the orchestrator to execute
+        # The orchestrator will call us back (turn 2) with results
+        return tool_calls, AssistantProviderResponse(
+            answer="",  # placeholder, turn 2 fills this
+            analysis=[],
+            suggestions=[],
+            follow_up_questions=[],
+            action_ids=[],
+            raw_payload={"provider": self.provider_name, "_parts1": parts1},
+        )
+
+    def generate_chat_with_tools_turn2(
+        self,
+        *,
+        history: list[dict[str, str]],
+        snapshot: MallSnapshot,
+        user_message: str,
+        lang: str,
+        tool_declarations: list[dict[str, Any]],
+        parts1: list[dict[str, Any]],
+        tool_results: list[dict[str, Any]],
+    ) -> AssistantProviderResponse:
+        """
+        Turn 2: Send tool execution results back to Gemini for natural language confirmation.
+        """
+        contents: list[dict] = [
+            {
+                "role": "model" if item["role"] == "assistant" else "user",
+                "parts": [{"text": item["content"]}],
+            }
+            for item in history
+            if item["role"] in {"user", "assistant"} and item["content"].strip()
+        ]
+        context_block = {
+            "mall_snapshot_summary": snapshot.to_prompt_payload(),
+            "user_message": user_message,
+            "preferred_language": "Arabic" if lang == "ar" else "English",
+        }
+        contents.append({"role": "user", "parts": [{"text": json.dumps(context_block, ensure_ascii=False)}]})
+        # Append model's function call turn
+        contents.append({"role": "model", "parts": parts1})
+        # Append function results
+        function_response_parts = [
+            {
+                "functionResponse": {
+                    "name": r["name"],
+                    "response": r["result"],
+                }
+            }
+            for r in tool_results
+        ]
+        contents.append({"role": "user", "parts": function_response_parts})
+
+        system_instruction = (
+            "You are SmartMall AI OS. The tool(s) have been executed successfully. "
+            "Confirm the result clearly and concisely in the user's language. "
+            "Use markdown formatting. Be warm and direct."
+        )
+
+        payload_turn2 = {
+            "systemInstruction": {"parts": [{"text": system_instruction}]},
+            "tools": [{"functionDeclarations": tool_declarations}],
+            "contents": contents,
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseJsonSchema": _ASSISTANT_RESPONSE_SCHEMA,
+                "temperature": self._config.temperature,
+            },
+        }
+
+        try:
+            r2 = httpx.post(
+                f"{self._config.base_url}/models/{self._config.model}:generateContent",
+                headers={"Content-Type": "application/json", "x-goog-api-key": self._config.api_key},
+                json=payload_turn2,
+                timeout=self._config.timeout_seconds,
+            )
+            r2.raise_for_status()
+            data2 = r2.json()
+        except httpx.HTTPError as exc:
+            raise AssistantProviderError(f"Gemini turn-2 failed: {exc}") from exc
+
+        text2 = self._extract_text(data2)
+        try:
+            parsed = json.loads(text2)
+        except json.JSONDecodeError:
+            parsed = {"answer": text2, "analysis": [], "suggestions": [], "follow_up_questions": [], "action_ids": []}
+
+        return AssistantProviderResponse(
+            answer=str(parsed.get("answer") or "✅ تم تنفيذ الأمر بنجاح."),
+            analysis=self._ensure_string_list(parsed.get("analysis")),
+            suggestions=self._ensure_string_list(parsed.get("suggestions")),
+            follow_up_questions=self._ensure_string_list(parsed.get("follow_up_questions")),
+            action_ids=self._ensure_string_list(parsed.get("action_ids")),
+            raw_payload=parsed,
+        )
+
 
 class FallbackAssistantProvider(BaseAssistantProvider):
     provider_name = "fallback-rule-engine"
