@@ -56,7 +56,9 @@ const Login = ({ onLogin }: LoginProps) => {
       const errorResponse = errorValue as AxiosError<{ detail?: string }>;
       const detail =
         errorResponse.response?.data?.detail ||
-        (lang === 'ar' ? 'تعذر الوصول إلى الخادم أو بيانات الدخول غير صحيحة' : 'The server is unreachable or the credentials are invalid');
+        (lang === 'ar'
+          ? 'تعذر الوصول إلى الخادم أو بيانات الدخول غير صحيحة'
+          : 'The server is unreachable or the credentials are invalid');
       setError(`${t('loginError')}: ${detail}`);
     } finally {
       setLoading(false);
@@ -173,7 +175,9 @@ const Login = ({ onLogin }: LoginProps) => {
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-500">
-          {lang === 'ar' ? 'منصة تشغيل ذكية للمراكز التجارية - وصول آمن ومدعوم بالذكاء الاصطناعي' : 'Retail operations OS with secure, AI-powered access'}
+          {lang === 'ar'
+            ? 'منصة تشغيل ذكية للمراكز التجارية مع وصول آمن ومدعوم بالذكاء الاصطناعي'
+            : 'Retail operations OS with secure, AI-powered access'}
         </p>
       </motion.div>
     </div>

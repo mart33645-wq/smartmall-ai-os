@@ -16,3 +16,5 @@ pytest
 httpx
 reportlab
 pika
+arabic-reshaper
+python-bidi

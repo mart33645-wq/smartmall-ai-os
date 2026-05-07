@@ -1,11 +1,19 @@
+import { Navigate, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
+
+import { useStore } from '../store/useStore';
 
 interface ProtectedRouteProps {
   children: ReactNode;
 }
 
 export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  // Login has been removed. Keep this component as a "pass-through"
-  // so we don't have to refactor all routes that used it.
+  const user = useStore((state) => state.user);
+  const location = useLocation();
+
+  if (!user?.token) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
   return <>{children}</>;
 };

@@ -3,6 +3,22 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { wsUrl } from './api';
 
+const shouldEnableWebSocket = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const explicit = import.meta.env.VITE_ENABLE_WEBSOCKET;
+  if (explicit === 'true') {
+    return true;
+  }
+  if (explicit === 'false') {
+    return false;
+  }
+
+  return ['127.0.0.1', 'localhost'].includes(window.location.hostname);
+};
+
 export function useWebSocket() {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -17,6 +33,7 @@ export function useWebSocket() {
 
   const connect = useCallback(() => {
     if (!shouldReconnectRef.current) return;
+    if (!shouldEnableWebSocket()) return;
     if (
       socketRef.current?.readyState === WebSocket.OPEN ||
       socketRef.current?.readyState === WebSocket.CONNECTING

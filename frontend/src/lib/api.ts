@@ -1,11 +1,12 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
-import type { AuthUser } from '../store/useStore';
+import { useStore, type AuthUser } from '../store/useStore';
 import { getStoredLang } from '../i18n/runtimeText';
 
 const USER_STORAGE_KEY = 'smartmall_user';
 const DEFAULT_BACKEND_PORT = '8010';
+const LOCAL_BROWSER_HOSTS = new Set(['127.0.0.1', 'localhost']);
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 
@@ -14,8 +15,13 @@ const getDefaultApiBaseUrl = () => {
     return `http://127.0.0.1:${DEFAULT_BACKEND_PORT}`;
   }
 
-  const { protocol, hostname } = window.location;
-  return `${protocol}//${hostname}:${DEFAULT_BACKEND_PORT}`;
+  const { protocol, hostname, origin } = window.location;
+
+  if (LOCAL_BROWSER_HOSTS.has(hostname)) {
+    return `${protocol}//${hostname}:${DEFAULT_BACKEND_PORT}`;
+  }
+
+  return origin;
 };
 
 export const API_BASE_URL = trimTrailingSlash(
@@ -40,6 +46,16 @@ export const getStoredUser = (): AuthUser | null => {
   }
 };
 
+const clearStoredSession = () => {
+  try {
+    window.localStorage.removeItem(USER_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+
+  useStore.getState().setUser(null);
+};
+
 const getAccessToken = () => getStoredUser()?.token;
 
 export const api = axios.create({
@@ -61,14 +77,13 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     const url = String(err.config?.url || '');
+
     if (err.response?.status === 401 && !url.includes('/api/auth/login')) {
-      // Login flow removed: keep the app running and just surface the error.
-      try {
-        localStorage.removeItem(USER_STORAGE_KEY);
-      } catch {
-        /* ignore */
+      clearStoredSession();
+
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.assign('/login');
       }
-      toast.error(getStoredLang() === 'ar' ? 'غير مصرح' : 'Unauthorized');
     } else if (err.response?.data?.detail) {
       toast.error(err.response.data.detail);
     } else {
@@ -79,6 +94,7 @@ api.interceptors.response.use(
             : 'An unexpected error occurred while contacting the server'),
       );
     }
+
     return Promise.reject(err);
   },
 );

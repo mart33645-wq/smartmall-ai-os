@@ -8,7 +8,7 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   cacheDir: process.env.SMARTMALL_VITE_CACHE || join(process.env.TEMP || process.cwd(), 'smartmall-vite-cache'),
   build: {
-    emptyOutDir: false,
+    emptyOutDir: true,
   },
   plugins: [
     react(),

@@ -15,11 +15,9 @@ def _split_origins(raw: str) -> List[str]:
 
 
 def _default_sqlite_database_url() -> str:
-    if os.name == "nt":
-        base_dir = Path(tempfile.gettempdir()) / "SmartMall AI OS"
-        base_dir.mkdir(parents=True, exist_ok=True)
-        return f"sqlite:///{(base_dir / 'smartmall.db').as_posix()}"
-    return "sqlite:///./smartmall.db"
+    base_dir = Path(tempfile.gettempdir()) / "SmartMall AI OS"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return f"sqlite:///{(base_dir / 'smartmall.db').as_posix()}"
 
 @dataclass(frozen=True)
 class GeminiSettings:
