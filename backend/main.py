@@ -60,6 +60,7 @@ app = FastAPI(title="SmartMall AI OS Enterprise", version="4.0.0", lifespan=life
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS if CORS_ORIGINS else ["*"], # Broaden for local dev stability
+    allow_origin_regex=r"^https://([a-z0-9-]+\.)*(vercel\.app|ammartahoun\.online)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
