@@ -260,6 +260,87 @@ class AIRouter:
             "llm_available": active != "none",
         }
 
+    def test_connectivity(self) -> dict[str, Any]:
+        """Send a minimal ping to each provider and report latency + errors."""
+        import httpx
+
+        results: dict[str, Any] = {}
+
+        # ── OpenAI ping ───────────────────────────────────────────────────
+        if self._openai.is_available():
+            t0 = time.time()
+            try:
+                resp = httpx.post(
+                    f"{self._openai._config.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self._openai._config.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self._openai._config.model,
+                        "messages": [{"role": "user", "content": "ping"}],
+                        "max_tokens": 1,
+                    },
+                    timeout=httpx.Timeout(10, connect=5),
+                )
+                latency_ms = round((time.time() - t0) * 1000)
+                results["openai"] = {
+                    "ok": resp.status_code == 200,
+                    "status_code": resp.status_code,
+                    "latency_ms": latency_ms,
+                    "model": self._openai._config.model,
+                }
+            except Exception as exc:
+                latency_ms = round((time.time() - t0) * 1000)
+                results["openai"] = {
+                    "ok": False,
+                    "error": str(exc)[:200],
+                    "latency_ms": latency_ms,
+                    "model": self._openai._config.model,
+                }
+        else:
+            results["openai"] = {"ok": False, "error": "No API key configured"}
+
+        # ── Gemini ping ───────────────────────────────────────────────────
+        if self._gemini.is_available():
+            t0 = time.time()
+            try:
+                url = (
+                    f"{self._gemini._config.base_url}/models/{self._gemini._config.model}"
+                    ":generateContent"
+                )
+                resp = httpx.post(
+                    url,
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": self._gemini._config.api_key,
+                    },
+                    json={
+                        "contents": [{"role": "user", "parts": [{"text": "ping"}]}],
+                        "generationConfig": {"maxOutputTokens": 1},
+                    },
+                    timeout=httpx.Timeout(10, connect=5),
+                )
+                latency_ms = round((time.time() - t0) * 1000)
+                results["gemini"] = {
+                    "ok": resp.status_code == 200,
+                    "status_code": resp.status_code,
+                    "latency_ms": latency_ms,
+                    "model": self._gemini._config.model,
+                }
+            except Exception as exc:
+                latency_ms = round((time.time() - t0) * 1000)
+                results["gemini"] = {
+                    "ok": False,
+                    "error": str(exc)[:200],
+                    "latency_ms": latency_ms,
+                    "model": self._gemini._config.model,
+                }
+        else:
+            results["gemini"] = {"ok": False, "error": "No API key configured"}
+
+        return results
+
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _record_failover(self) -> None:

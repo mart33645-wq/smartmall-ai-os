@@ -259,6 +259,26 @@ def provider_status(
     return ai_router.provider_status()
 
 
+@router.get("/health-check")
+def health_check(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Live connectivity test — sends a minimal request to each configured provider
+    and reports latency + error details. Use this to verify API keys are valid.
+    """
+    results = ai_router.test_connectivity()
+    all_ok = any(r.get("ok") for r in results.values() if isinstance(r, dict))
+    return {
+        "system_healthy": all_ok,
+        "providers": results,
+        "recommendation": (
+            "All providers operational" if all_ok
+            else "Check API keys in .env — at least one provider must be configured"
+        ),
+    }
+
+
 # ── NEW: Audit logs ────────────────────────────────────────────────────────────
 
 @router.get("/audit-logs")

@@ -103,6 +103,31 @@ class GeminiProvider:
         self.record_success()
         return self._normalise_response(data)
 
+    def test_ping(self) -> dict:
+        """Quick connectivity test with minimal token usage."""
+        if not self.is_healthy():
+            return {"ok": False, "error": "circuit_open"}
+        try:
+            url = (
+                f"{self._config.base_url}/models/{self._config.model}"
+                ":generateContent"
+            )
+            resp = httpx.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": self._config.api_key,
+                },
+                json={
+                    "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
+                    "generationConfig": {"maxOutputTokens": 1},
+                },
+                timeout=httpx.Timeout(10, connect=5),
+            )
+            return {"ok": resp.status_code == 200, "status": resp.status_code}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:200]}
+
     # ── Streaming generation ───────────────────────────────────────────────────
 
     async def generate_stream(
@@ -204,7 +229,23 @@ class GeminiProvider:
         """Return a dict shaped like OpenAI's response for uniform downstream handling."""
         candidates = data.get("candidates") or []
         if not candidates:
+            # Check for safety block
+            block_reason = data.get("promptFeedback", {}).get("blockReason", "")
+            if block_reason:
+                raise GeminiProviderError(
+                    f"Gemini blocked the request due to safety: {block_reason}",
+                    kind="safety_block",
+                )
             raise GeminiProviderError("Gemini returned no candidates", kind="invalid_response")
+
+        # Check candidate-level safety
+        finish_reason = candidates[0].get("finishReason", "")
+        if finish_reason == "SAFETY":
+            raise GeminiProviderError(
+                "Gemini response was blocked by safety filters",
+                kind="safety_block",
+            )
+
         parts = candidates[0].get("content", {}).get("parts", [])
         text = "".join(str(p.get("text") or "") for p in parts if isinstance(p, dict))
 
@@ -263,6 +304,13 @@ class GeminiProvider:
                 self.record_failure()
                 raise GeminiProviderError("Gemini request timed out", kind="timeout") from exc
             except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code if exc.response else 0
+                if status in (401, 403):
+                    self.record_failure()
+                    raise GeminiProviderError(
+                        "Gemini API key is invalid or lacks permission. Check GEMINI_API_KEY in .env",
+                        kind="auth_error",
+                    ) from exc
                 last_exc = exc
                 if attempt >= _MAX_RETRIES:
                     break

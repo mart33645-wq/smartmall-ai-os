@@ -485,8 +485,8 @@ class OpenAIAssistantProvider(BaseAssistantProvider):
             payload["reasoning_effort"] = "low"
 
     def _post_json(self, payload: dict[str, Any]) -> dict[str, Any]:
-        timeout_seconds = max(4.0, min(float(self._config.timeout_seconds), 12.0))
-        timeout = httpx.Timeout(timeout_seconds, connect=3.0)
+        timeout_seconds = max(4.0, min(float(self._config.timeout_seconds), 25.0))
+        timeout = httpx.Timeout(timeout_seconds, connect=5.0)
 
         try:
             response = httpx.post(
@@ -501,6 +501,15 @@ class OpenAIAssistantProvider(BaseAssistantProvider):
             response.raise_for_status()
             return response.json()
         except httpx.HTTPError as exc:
+            error_str = str(exc)
+            if "401" in error_str or "Unauthorized" in error_str:
+                raise AssistantProviderError(
+                    "OpenAI API key is invalid or expired. Check OPENAI_API_KEY in .env"
+                ) from exc
+            if "429" in error_str:
+                raise AssistantProviderError(
+                    "OpenAI rate limit exceeded. The system will retry automatically."
+                ) from exc
             raise AssistantProviderError(f"OpenAI request failed: {exc}") from exc
         except ValueError as exc:
             raise AssistantProviderError("OpenAI response was not valid JSON") from exc

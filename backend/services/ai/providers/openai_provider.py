@@ -102,6 +102,28 @@ class OpenAIProvider:
         self.record_success()
         return data
 
+    def test_ping(self) -> dict:
+        """Quick connectivity test with minimal token usage."""
+        if not self.is_healthy():
+            return {"ok": False, "error": "circuit_open"}
+        try:
+            resp = httpx.post(
+                f"{self._config.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self._config.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self._config.model,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                },
+                timeout=httpx.Timeout(10, connect=5),
+            )
+            return {"ok": resp.status_code == 200, "status": resp.status_code}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:200]}
+
     # ── Streaming generation ───────────────────────────────────────────────────
 
     async def generate_stream(
@@ -270,6 +292,13 @@ class OpenAIProvider:
                 self.record_failure()
                 raise OpenAIProviderError("OpenAI request timed out", kind="timeout") from exc
             except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code if exc.response else 0
+                if status == 401:
+                    self.record_failure()
+                    raise OpenAIProviderError(
+                        "OpenAI API key is invalid or expired. Check OPENAI_API_KEY in .env",
+                        kind="auth_error",
+                    ) from exc
                 last_exc = exc
                 if attempt >= _MAX_RETRIES:
                     break
