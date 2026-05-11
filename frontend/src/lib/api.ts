@@ -5,7 +5,7 @@ import { useStore, type AuthUser } from '../store/useStore';
 import { getStoredLang } from '../i18n/runtimeText';
 
 const USER_STORAGE_KEY = 'smartmall_user';
-const DEFAULT_BACKEND_PORT = '8000';
+const DEFAULT_BACKEND_PORT = '8010';
 const LOCAL_BROWSER_HOSTS = new Set(['127.0.0.1', 'localhost']);
 const VERCEL_BACKEND_ORIGIN = 'https://smartmall-backend.vercel.app';
 

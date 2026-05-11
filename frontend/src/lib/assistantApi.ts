@@ -36,8 +36,11 @@ export type AssistantChatResponse = {
 export type AssistantStatus = {
   provider: string;
   model: string;
+  llm_enabled: boolean;
+  openai_enabled: boolean;
   gemini_enabled: boolean;
   fallback_active: boolean;
+  provider_label?: string | null;
 };
 
 export type AssistantMessage = {
@@ -84,7 +87,7 @@ export class AssistantApiClient {
   }
 
   async chat(payload: { message: string; conversation_id?: string | null; allow_automation: boolean; lang: Lang }) {
-    const { data } = await this.client.post<AssistantChatResponse>('/api/assistant/chat', payload, { timeout: 60000 });
+    const { data } = await this.client.post<AssistantChatResponse>('/api/assistant/chat', payload, { timeout: 25000 });
     return data;
   }
 
@@ -96,7 +99,7 @@ export class AssistantApiClient {
   async getSystemAnalysis(lang: Lang) {
     const { data } = await this.client.get<AssistantSystemAnalysis>('/api/assistant/system-analysis', {
       params: { lang },
-      timeout: 60000,
+      timeout: 25000,
     });
     return data;
   }

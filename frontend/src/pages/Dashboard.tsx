@@ -62,7 +62,7 @@ const StatWidget = ({
 export default function Dashboard() {
   const { t, lang } = useLang();
   const navigate = useNavigate();
-  const { shops, analytics, setShops, setAnalytics } = useStore();
+  const { shops, analytics, setShops, setAnalytics, refreshVersion } = useStore();
   const [recentTasks, setRecentTasks] = useState<RecentTask[]>([]);
   const [parkingStats, setParkingStats] = useState<ParkingStatsLike | null>(null);
 
@@ -91,7 +91,7 @@ export default function Dashboard() {
     };
 
     void fetchAll();
-  }, [lang, setAnalytics, setShops]);
+  }, [lang, setAnalytics, setShops, refreshVersion]);
 
   const totalRevenue = analytics?.total_revenue ?? shops.reduce((sum, shop) => sum + (shop.daily_revenue || 0), 0);
   const totalVisitors = analytics?.total_visitors ?? shops.reduce((sum, shop) => sum + (shop.visitor_count || 0), 0);

@@ -46,14 +46,14 @@ class MallContextService:
             "overdue_tasks": len(overdue_tasks),
             "parking_occupancy": parking["occupancy_pct"],
             "avg_shop_performance": avg_performance,
-            "gemini_live": settings.gemini.enabled,
+            "assistant_live": settings.llm_enabled,
         }
 
         modules = [
             self._score_retail_module(len(shops), len(at_risk), avg_performance, lang),
             self._score_operations_module(len(pending_tasks), len(overdue_tasks), lang),
             self._score_parking_module(parking["occupancy_pct"], lang),
-            self._score_ai_module(settings.gemini.enabled, lang),
+            self._score_ai_module(settings.llm_enabled, lang),
         ]
         opportunities = self._build_opportunities(key_metrics, at_risk, lang)
         suggested_actions = self._build_suggested_actions(key_metrics, at_risk, lang)
@@ -172,8 +172,8 @@ class MallContextService:
             issue=issue,
         )
 
-    def _score_ai_module(self, gemini_enabled: bool, lang: str) -> AssistantModuleAssessment:
-        if gemini_enabled:
+    def _score_ai_module(self, llm_enabled: bool, lang: str) -> AssistantModuleAssessment:
+        if llm_enabled:
             return AssistantModuleAssessment(
                 module="المساعد الذكي" if lang == "ar" else "AI copilot",
                 score=95,
@@ -188,14 +188,14 @@ class MallContextService:
             module="المساعد الذكي" if lang == "ar" else "AI copilot",
             score=68,
             summary=(
-                "المساعد يعمل بوضع احتياطي حتى يتم إعداد Gemini."
+                "المساعد يعمل بوضع احتياطي حتى يتم إعداد مزود الذكاء الاصطناعي."
                 if lang == "ar"
-                else "Fallback intelligence is active until Gemini is configured."
+                else "Fallback intelligence is active until the AI provider is configured."
             ),
             issue=(
-                "اضبط GEMINI_API_KEY للحصول على إجابات أعمق وأكثر مرونة."
+                "اضبط OPENAI_API_KEY للحصول على إجابات أعمق وأكثر مرونة."
                 if lang == "ar"
-                else "Set GEMINI_API_KEY for deeper and more flexible answers."
+                else "Set OPENAI_API_KEY for deeper and more flexible answers."
             ),
         )
 
@@ -225,11 +225,11 @@ class MallContextService:
                 if lang == "ar"
                 else "Enable overflow parking guidance before the next traffic peak."
             )
-        if not key_metrics["gemini_live"]:
+        if not key_metrics["assistant_live"]:
             opportunities.append(
-                "فعّل Gemini بدل الوضع الاحتياطي ليجيب المساعد عن الأسئلة العامة والمعقدة بشكل أفضل."
+                "فعّل OpenAI بدل الوضع الاحتياطي ليجيب المساعد عن الأسئلة العامة والمعقدة بشكل أفضل."
                 if lang == "ar"
-                else "Configure Gemini so the assistant can answer broader and more complex questions."
+                else "Configure OpenAI so the assistant can answer broader and more complex questions."
             )
         if not opportunities:
             opportunities.append(

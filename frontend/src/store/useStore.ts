@@ -92,6 +92,10 @@ interface SmartMallState {
   // UI
   isLoading: boolean;
   setLoading: (loading: boolean) => void;
+
+  // Global Refresh
+  refreshVersion: number;
+  triggerRefresh: () => void;
 }
 
 export const useStore = create<SmartMallState>((set) => ({
@@ -148,4 +152,8 @@ export const useStore = create<SmartMallState>((set) => ({
   // UI
   isLoading: false,
   setLoading: (loading) => set({ isLoading: loading }),
+
+  // Global Refresh
+  refreshVersion: 0,
+  triggerRefresh: () => set((state) => ({ refreshVersion: state.refreshVersion + 1 })),
 }));

@@ -34,6 +34,18 @@ class GeminiSettings:
 
 
 @dataclass(frozen=True)
+class OpenAISettings:
+    api_key: str
+    model: str
+    base_url: str
+    timeout_seconds: float
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.api_key)
+
+
+@dataclass(frozen=True)
 class AppSettings:
     secret_key: str
     algorithm: str
@@ -46,7 +58,12 @@ class AppSettings:
     default_postgres_url: str
     redis_url: str
     ai_automation_default: bool
+    openai: OpenAISettings
     gemini: GeminiSettings
+
+    @property
+    def llm_enabled(self) -> bool:
+        return self.openai.enabled or self.gemini.enabled
 
     @classmethod
     def from_env(cls) -> "AppSettings":
@@ -64,6 +81,12 @@ class AppSettings:
             default_postgres_url="postgresql://user:password@localhost/smartmall",
             redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
             ai_automation_default=os.getenv("AI_AUTOMATION_DEFAULT", "true").lower() in ("1", "true", "yes"),
+            openai=OpenAISettings(
+                api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+                model=os.getenv("OPENAI_MODEL", "gpt-5-mini").strip() or "gpt-5-mini",
+                base_url=os.getenv("OPENAI_API_BASE_URL", "https://api.openai.com/v1").strip() or "https://api.openai.com/v1",
+                timeout_seconds=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "12")),
+            ),
             gemini=GeminiSettings(
                 api_key=os.getenv("GEMINI_API_KEY", "").strip(),
                 model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash",
@@ -91,6 +114,11 @@ SQLITE_DATABASE_URL = settings.sqlite_database_url
 DEFAULT_POSTGRES_URL = settings.default_postgres_url
 
 REDIS_URL = settings.redis_url
+
+OPENAI_API_KEY = settings.openai.api_key
+OPENAI_MODEL = settings.openai.model
+OPENAI_API_BASE_URL = settings.openai.base_url
+OPENAI_TIMEOUT_SECONDS = settings.openai.timeout_seconds
 
 GEMINI_API_KEY = settings.gemini.api_key
 GEMINI_MODEL = settings.gemini.model

@@ -108,6 +108,19 @@ const pickExecutions = (value: unknown) =>
 const pickActionIds = (value: unknown) =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 
+const providerBadgeLabel = (status: AssistantStatus | null, lang: 'ar' | 'en') => {
+  if (status?.provider_label) {
+    return status.provider_label;
+  }
+  if (status?.provider.includes('openai')) {
+    return 'OpenAI';
+  }
+  if (status?.provider.includes('gemini')) {
+    return 'Gemini';
+  }
+  return lang === 'ar' ? 'احتياطي' : 'Fallback';
+};
+
 const metricLabel = (key: string, lang: 'ar' | 'en') => {
   const labels: Record<string, { ar: string; en: string }> = {
     total_revenue: { ar: 'إجمالي الإيراد', en: 'Total revenue' },
@@ -118,7 +131,7 @@ const metricLabel = (key: string, lang: 'ar' | 'en') => {
     overdue_tasks: { ar: 'المهام المتأخرة', en: 'Overdue tasks' },
     parking_occupancy: { ar: 'إشغال المواقف', en: 'Parking occupancy' },
     avg_shop_performance: { ar: 'متوسط أداء المحلات', en: 'Average shop performance' },
-    gemini_live: { ar: 'Gemini مفعل', en: 'Gemini live' },
+    assistant_live: { ar: 'المساعد مفعل', en: 'Assistant live' },
   };
 
   return labels[key]?.[lang] || key.replaceAll('_', ' ');
@@ -156,6 +169,7 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
   const { t, lang } = useLang();
   const location = useLocation();
   const user = useStore((state) => state.user);
+  const triggerRefresh = useStore((state) => state.triggerRefresh);
   const isPage = variant === 'page';
   const [isOpen, setIsOpen] = useState(isPage);
   const [activeTab, setActiveTab] = useState<ActiveTab>('chat');
@@ -174,7 +188,7 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
 
   const panelVisible = isPage || isOpen;
   const hasBackendSession = Boolean(user?.token);
-  const providerBadge = status?.gemini_enabled ? 'Gemini' : lang === 'ar' ? 'احتياطي' : 'Fallback';
+  const providerBadge = providerBadgeLabel(status, lang);
   const introLine =
     lang === 'ar'
       ? 'اسأل عن النظام أو عن أي موضوع تقني أو تجاري أو عام.'
@@ -310,6 +324,7 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
       if (response.executed_actions.length > 0) {
         toast.success(`${t('assistantActionExecuted')} (${formatNumber(response.executed_actions.length, lang)})`);
         void refreshAnalysis();
+        triggerRefresh();
       }
     } catch {
       setMessages((current) => [
@@ -333,6 +348,7 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
       setMessages((current) => [...current, toSystemMessage(execution)]);
       toast.success(execution.summary);
       void refreshAnalysis();
+      triggerRefresh();
     } catch {
       toast.error(t('assistantActionFailed'));
     } finally {
@@ -372,7 +388,7 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
                 : t('assistantPanelTitle')}
             </h3>
             <p className="mt-1 text-xs text-slate-400">
-              {status?.gemini_enabled ? `${t('assistantPanelSubtitleLive')} ${status.model}` : t('assistantPanelSubtitleFallback')}
+              {status?.llm_enabled ? `${t('assistantPanelSubtitleLive')} ${status.model}` : t('assistantPanelSubtitleFallback')}
             </p>
             <p className="mt-2 text-sm text-slate-300">{introLine}</p>
           </div>
@@ -407,7 +423,7 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
           ))}
 
           <div className="ms-auto flex items-center gap-2 rounded-full border border-white/8 bg-white/5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-300">
-            <span className={`h-2 w-2 rounded-full ${status?.gemini_enabled ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+            <span className={`h-2 w-2 rounded-full ${status?.llm_enabled ? 'bg-emerald-400' : 'bg-amber-400'}`} />
             {providerBadge}
           </div>
         </div>

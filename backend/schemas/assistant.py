@@ -77,5 +77,8 @@ class AssistantSystemAnalysisResponse(BaseModel):
 class AssistantStatusResponse(BaseModel):
     provider: str
     model: str
+    llm_enabled: bool = False
+    openai_enabled: bool = False
     gemini_enabled: bool
     fallback_active: bool
+    provider_label: str | None = None

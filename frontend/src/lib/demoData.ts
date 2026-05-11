@@ -76,8 +76,11 @@ export const demoTasks = [
 export const offlineAssistantStatus = (lang: 'ar' | 'en'): AssistantStatus => ({
   provider: lang === 'ar' ? 'المساعد المحلي' : 'Local assistant',
   model: lang === 'ar' ? 'وضع بدون خادم' : 'Offline mode',
+  llm_enabled: false,
+  openai_enabled: false,
   gemini_enabled: false,
   fallback_active: true,
+  provider_label: lang === 'ar' ? 'احتياطي' : 'Fallback',
 });
 
 export const offlineAssistantAnalysis = (lang: 'ar' | 'en'): AssistantSystemAnalysis => ({
@@ -93,7 +96,7 @@ export const offlineAssistantAnalysis = (lang: 'ar' | 'en'): AssistantSystemAnal
     total_shops: demoAnalyticsOverview.total_shops,
     shops_at_risk: demoAnalyticsOverview.shops_at_risk,
     parking_occupancy: demoAnalyticsOverview.parking_occupancy,
-    gemini_live: false,
+    assistant_live: false,
   },
   modules: [
     { module: lang === 'ar' ? 'التحليلات' : 'Analytics', score: 92, summary: lang === 'ar' ? 'الرسومات تعمل ببيانات جاهزة.' : 'Charts are running with fallback data.' },

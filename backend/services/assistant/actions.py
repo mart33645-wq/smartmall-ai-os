@@ -502,6 +502,26 @@ class AssistantActionRegistry:
                 data={"affected": len(shops), "percent": pct},
             ))
 
+        if any(token in lowered for token in ("set rent", "make rent", "rent to", "change rent to")):
+            target = self._find_shop_from_message(message)
+            new_rent = self._extract_target_rent(message)
+            if target and new_rent is not None:
+                old_rent = target.rent_amount
+                target.rent_amount = new_rent
+                self._db.commit()
+                self._db.refresh(target)
+                results.append(AssistantActionExecutionResult(
+                    action_id="direct_set_rent",
+                    title="ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ø¥ÙŠØ¬Ø§Ø±" if self._lang == "ar" else "Set rent",
+                    summary=(
+                        f"ØªÙ… ØªØ­Ø¯ÙŠØ¯ Ø¥ÙŠØ¬Ø§Ø± **{target.name}** Ù…Ù† {old_rent:,.0f} Ø¥Ù„Ù‰ {target.rent_amount:,.0f}."
+                        if self._lang == "ar"
+                        else f"Set **{target.name}** rent from {old_rent:,.0f} to {target.rent_amount:,.0f}."
+                    ),
+                    affected_records=1,
+                    data={"shop_id": target.id, "old_rent": old_rent, "new_rent": target.rent_amount},
+                ))
+
         return results
 
     # ── HELPERS ────────────────────────────────────────────────────────────────
@@ -540,6 +560,17 @@ class AssistantActionRegistry:
             pct = int(match.group(1))
             return max(1, min(80, pct))
         return default
+
+    def _extract_target_rent(self, message: str) -> float | None:
+        patterns = [
+            r"(?:set rent|make rent|rent to|change rent to)\s+(?:for\s+.+?\s+)?(?:to\s+)?(\d+(?:\.\d+)?)",
+            r"(?:to)\s+(\d+(?:\.\d+)?)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, message, re.IGNORECASE)
+            if match:
+                return max(100, float(match.group(1)))
+        return None
 
     def _extract_category(self, message: str) -> str:
         categories = {
@@ -583,13 +614,26 @@ class AssistantActionRegistry:
         return "Medium"
 
     def _find_shop_from_message(self, message: str) -> Shop | None:
-        shops = self._db.query(Shop).all()
+        shops = sorted(self._db.query(Shop).all(), key=lambda shop: len(shop.name or ""), reverse=True)
         lowered = message.lower()
-        # Exact name match first
+
+        quoted = re.findall(r"[\"'](.+?)[\"']", message)
+        if quoted:
+            quoted_lower = [item.lower().strip() for item in quoted if item.strip()]
+            for shop in shops:
+                if shop.name and any(shop.name.lower() == item or item in shop.name.lower() for item in quoted_lower):
+                    return shop
+
         for shop in shops:
             if shop.name and shop.name.lower() in lowered:
                 return shop
-        # Partial match
+
+        for shop in shops:
+            if shop.name:
+                words = [word for word in shop.name.lower().split() if len(word) > 2]
+                if words and all(word in lowered for word in words[:2]):
+                    return shop
+
         for shop in shops:
             if shop.name:
                 for word in shop.name.lower().split():

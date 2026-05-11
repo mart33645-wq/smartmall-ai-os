@@ -14,6 +14,7 @@ TEST_DB = Path(os.getenv("TEMP", str(ROOT))) / "smartmall_pytest.db"
 os.environ["SMARTMALL_TESTING"] = "true"
 os.environ["SQLITE_DATABASE_URL"] = f"sqlite:///{TEST_DB}"
 os.environ["DISABLE_EVENT_BUS"] = "true"
+os.environ["OPENAI_API_KEY"] = ""
 os.environ["GEMINI_API_KEY"] = ""
 
 

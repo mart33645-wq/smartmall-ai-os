@@ -14,6 +14,7 @@ import {
 } from '../i18n/format';
 import { api } from '../lib/api';
 import { demoTasks } from '../lib/demoData';
+import { useStore } from '../store/useStore';
 
 type TaskItem = {
   id: number;
@@ -181,6 +182,7 @@ const AddTaskModal = ({
 
 const TaskManager = () => {
   const { t, lang } = useLang();
+  const refreshVersion = useStore((state) => state.refreshVersion);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [filter, setFilter] = useState<'All' | 'In Progress' | 'Pending' | 'Completed'>('All');
   const [showModal, setShowModal] = useState(false);
@@ -203,7 +205,7 @@ const TaskManager = () => {
 
   useEffect(() => {
     void fetchTasks();
-  }, [fetchTasks]);
+  }, [fetchTasks, refreshVersion]);
 
   const handleAddTask = async (formData: TaskForm) => {
     setBtnLoading(true);

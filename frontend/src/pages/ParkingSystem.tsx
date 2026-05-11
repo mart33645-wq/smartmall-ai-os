@@ -38,7 +38,7 @@ const SlotCell = ({ slot, onToggle }: SlotCellProps) => {
 
 const ParkingSystem = () => {
   const { t, lang } = useLang();
-  const { parkingSlots, setParkingSlots, parkingStats, setParkingStats, mergeParkingSlot } = useStore();
+  const { parkingSlots, setParkingSlots, parkingStats, setParkingStats, mergeParkingSlot, refreshVersion } = useStore();
   const [level, setLevel] = useState('L1');
   const [loading, setLoading] = useState(false);
 
@@ -63,7 +63,7 @@ const ParkingSystem = () => {
 
   useEffect(() => {
     void fetchParking();
-  }, [fetchParking]);
+  }, [fetchParking, refreshVersion]);
 
   const handleToggle = async (slotId: number) => {
     try {

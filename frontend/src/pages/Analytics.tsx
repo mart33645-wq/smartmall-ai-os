@@ -122,7 +122,7 @@ const CustomTooltip = ({
 
 const Analytics = () => {
   const { t, lang } = useLang();
-  const { analytics, setAnalytics } = useStore();
+  const { analytics, setAnalytics, refreshVersion } = useStore();
   const [revenueChart, setRevenueChart] = useState<ChartPoint[]>([]);
   const [visitorTrends, setVisitorTrends] = useState<ChartPoint[]>([]);
   const [shopPerf, setShopPerf] = useState<ShopPerformanceEntry[]>([]);
@@ -152,7 +152,7 @@ const Analytics = () => {
     };
 
     void fetchAll();
-  }, [lang, setAnalytics]);
+  }, [lang, setAnalytics, refreshVersion]);
 
   const localizedRevenueChart = revenueChart.map((point) => ({
     ...point,

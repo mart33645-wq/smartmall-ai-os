@@ -162,7 +162,7 @@ const ShopActionButton = ({ disabled, icon: Icon, label, tone, onClick }: ShopAc
 
 const Shops = () => {
   const { t, lang, isRTL } = useLang();
-  const { shops, setShops, isLoading, setLoading } = useStore();
+  const { shops, setShops, isLoading, setLoading, refreshVersion } = useStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [editingShop, setEditingShop] = useState<Shop | null>(null);
@@ -185,7 +185,7 @@ const Shops = () => {
 
   useEffect(() => {
     void fetchShops();
-  }, [fetchShops]);
+  }, [fetchShops, refreshVersion]);
 
   useEffect(() => {
     if (!editingShop) {
