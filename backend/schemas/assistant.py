@@ -82,3 +82,5 @@ class AssistantStatusResponse(BaseModel):
     gemini_enabled: bool
     fallback_active: bool
     provider_label: str | None = None
+    # AIRouter circuit-breaker + failover snapshot (optional for older clients)
+    router_health: dict[str, Any] | None = None

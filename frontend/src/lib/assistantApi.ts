@@ -41,6 +41,7 @@ export type AssistantStatus = {
   gemini_enabled: boolean;
   fallback_active: boolean;
   provider_label?: string | null;
+  router_health?: Record<string, unknown> | null;
 };
 
 export type AssistantMessage = {

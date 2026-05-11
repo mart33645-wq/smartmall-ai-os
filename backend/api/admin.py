@@ -23,6 +23,16 @@ def integrations_status(current_user: User = Depends(get_current_user)):
     }
 
 
+@router.get("/integrations/vercel/deployments")
+def vercel_deployments_list(
+    limit: int = 5,
+    current_user: User = Depends(get_current_user),
+):
+    """Recent Vercel deployments (admin only)."""
+    _require_admin(current_user)
+    return {"deployments": vercel.get_recent_deployments(limit=min(limit, 20))}
+
+
 @router.post("/reset-db")
 def reset_db(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     _require_admin(current_user)

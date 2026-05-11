@@ -15,6 +15,7 @@ from typing import Any, AsyncGenerator, Literal
 from core.config import AppSettings
 from .providers.openai_provider import OpenAIProvider, OpenAIProviderError
 from .providers.gemini_provider import GeminiProvider, GeminiProviderError
+from .tool_format import declarations_to_openai_tools
 
 logger = logging.getLogger(__name__)
 
@@ -187,10 +188,15 @@ class AIRouter:
         system_prompt: str,
         tools: list[dict[str, Any]],
     ) -> tuple[dict[str, Any], ProviderName]:
-        """Tool-calling turn 1 — let the best provider pick a tool."""
+        """Tool-calling turn 1 — let the best provider pick a tool.
+
+        ``tools`` may be Gemini-style declarations (name/description/parameters with
+        uppercase OBJECT types). OpenAI receives a converted function-calling payload.
+        """
         if self._openai.is_healthy():
             try:
-                result = self._openai.chat_with_tools(messages, system_prompt, tools)
+                openai_tools = declarations_to_openai_tools(tools)
+                result = self._openai.chat_with_tools(messages, system_prompt, openai_tools)
                 return result, "openai"
             except OpenAIProviderError as exc:
                 logger.warning("AIRouter tool-call: OpenAI failed (%s), trying Gemini", exc.kind)

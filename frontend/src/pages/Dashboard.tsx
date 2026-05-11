@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Activity, Bot, Clock, DollarSign, Store, TrendingUp, Users } from 'lucide-react';
+import { Activity, Bot, Clock, Cloud, DollarSign, Store, TrendingUp, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -62,9 +62,15 @@ const StatWidget = ({
 export default function Dashboard() {
   const { t, lang } = useLang();
   const navigate = useNavigate();
-  const { shops, analytics, setShops, setAnalytics, refreshVersion } = useStore();
+  const { shops, analytics, setShops, setAnalytics, refreshVersion, user } = useStore();
   const [recentTasks, setRecentTasks] = useState<RecentTask[]>([]);
   const [parkingStats, setParkingStats] = useState<ParkingStatsLike | null>(null);
+  const [opsIntegrations, setOpsIntegrations] = useState<{
+    status: { github?: Record<string, unknown>; vercel?: Record<string, unknown> };
+    deployments: Array<Record<string, unknown>>;
+  } | null>(null);
+
+  const isAdmin = (user?.role ?? '').trim().toLowerCase() === 'admin';
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -80,6 +86,23 @@ export default function Dashboard() {
         setAnalytics(analyticsResponse.data);
         setRecentTasks((tasksResponse.data as RecentTask[]).slice(0, 4));
         setParkingStats(parkingResponse.data as ParkingStatsLike | null);
+
+        if (isAdmin) {
+          try {
+            const [intSt, depRes] = await Promise.all([
+              api.get('/api/admin/integrations-status'),
+              api.get('/api/admin/integrations/vercel/deployments'),
+            ]);
+            setOpsIntegrations({
+              status: intSt.data as { github?: Record<string, unknown>; vercel?: Record<string, unknown> },
+              deployments: (depRes.data as { deployments?: Array<Record<string, unknown>> }).deployments ?? [],
+            });
+          } catch {
+            setOpsIntegrations(null);
+          }
+        } else {
+          setOpsIntegrations(null);
+        }
       } catch (error) {
         console.error('Dashboard fetch error:', error);
         setShops(demoShops);
@@ -91,7 +114,7 @@ export default function Dashboard() {
     };
 
     void fetchAll();
-  }, [lang, setAnalytics, setShops, refreshVersion]);
+  }, [isAdmin, lang, setAnalytics, setShops, refreshVersion]);
 
   const totalRevenue = analytics?.total_revenue ?? shops.reduce((sum, shop) => sum + (shop.daily_revenue || 0), 0);
   const totalVisitors = analytics?.total_visitors ?? shops.reduce((sum, shop) => sum + (shop.visitor_count || 0), 0);
@@ -183,6 +206,60 @@ export default function Dashboard() {
           </div>
         </div>
       </motion.header>
+
+      {isAdmin && opsIntegrations ? (
+        <motion.section
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass rounded-[2rem] border border-white/10 p-6"
+        >
+          <div className="mb-4 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.2em] text-cyan-200">
+            <Cloud size={14} />
+            {lang === 'ar' ? 'تكامل النشر والمستودع' : 'Deploy & repository integrations'}
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-white/8 bg-white/4 p-4 text-sm">
+              <p className="font-bold text-white">GitHub</p>
+              <p className="mt-2 text-xs text-slate-400">
+                {(opsIntegrations.status.github as { enabled?: boolean } | undefined)?.enabled
+                  ? lang === 'ar'
+                    ? 'مفعّل — يمكن للمساعد الالتزام والدفع عند التكوين.'
+                    : 'Enabled — assistant can commit/push when configured.'
+                  : lang === 'ar'
+                    ? 'غير مفعّل — أضف GITHUB_TOKEN و GITHUB_REPO'
+                    : 'Disabled — set GITHUB_TOKEN and GITHUB_REPO'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/8 bg-white/4 p-4 text-sm">
+              <p className="font-bold text-white">Vercel</p>
+              <p className="mt-2 text-xs text-slate-400">
+                {(opsIntegrations.status.vercel as { enabled?: boolean } | undefined)?.enabled
+                  ? lang === 'ar'
+                    ? 'مفعّل — يمكن تشغيل النشر من أدوات المساعد.'
+                    : 'Enabled — deployments can be triggered from assistant tools.'
+                  : lang === 'ar'
+                    ? 'غير مفعّل — أضف VERCEL_TOKEN و VERCEL_PROJECT_ID'
+                    : 'Disabled — set VERCEL_TOKEN and VERCEL_PROJECT_ID'}
+              </p>
+            </div>
+          </div>
+          {opsIntegrations.deployments.length > 0 ? (
+            <div className="mt-4 border-t border-white/8 pt-4">
+              <p className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                {lang === 'ar' ? 'آخر عمليات النشر' : 'Recent deployments'}
+              </p>
+              <ul className="space-y-2 text-xs text-slate-300">
+                {opsIntegrations.deployments.slice(0, 5).map((d, i) => (
+                  <li key={String(d.id ?? d.uid ?? i)} className="flex flex-wrap justify-between gap-2 rounded-xl bg-black/20 px-3 py-2">
+                    <span className="font-mono text-cyan-200/90">{String(d.state ?? d.ready_state ?? '—')}</span>
+                    <span className="text-slate-500">{String(d.url ?? d.id ?? '').slice(0, 48)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </motion.section>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
         <StatWidget

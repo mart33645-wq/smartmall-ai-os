@@ -12,6 +12,7 @@ def test_assistant_status_uses_fallback_without_gemini_key(client):
     body = response.json()
     assert body["gemini_enabled"] is False
     assert body["fallback_active"] is True
+    assert "router_health" in body and isinstance(body["router_health"], dict)
 
 
 def test_assistant_chat_persists_memory_and_can_execute_safe_action(client):

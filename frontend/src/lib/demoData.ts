@@ -81,6 +81,7 @@ export const offlineAssistantStatus = (lang: 'ar' | 'en'): AssistantStatus => ({
   gemini_enabled: false,
   fallback_active: true,
   provider_label: lang === 'ar' ? 'احتياطي' : 'Fallback',
+  router_health: null,
 });
 
 export const offlineAssistantAnalysis = (lang: 'ar' | 'en'): AssistantSystemAnalysis => ({

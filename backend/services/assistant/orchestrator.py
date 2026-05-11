@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import datetime
-from typing import Iterable
+import json
+import logging
+from typing import Any, Iterable
 
 from sqlalchemy.orm import Session
 
@@ -26,6 +28,11 @@ from .memory import ConversationMemoryService
 from .models import AssistantActionExecutionResult, AssistantProviderResponse, MallSnapshot
 from .providers import AssistantProviderError, FallbackAssistantProvider, GeminiAssistantProvider, OpenAIAssistantProvider
 from .tools import TOOL_DECLARATIONS, ToolExecutor
+from services.ai import ai_router
+from services.ai.router import AllProvidersFailedError
+from services.ai.tool_format import extract_tool_calls, first_choice_message, message_text
+
+logger = logging.getLogger(__name__)
 
 
 class SmartMallAssistantOrchestrator:
@@ -84,52 +91,68 @@ class SmartMallAssistantOrchestrator:
 
         tool_provider = self._tool_calling_provider()
         if provider_response is None and request.allow_automation and tool_provider is not None:
+            tool_calls: list[dict[str, Any]] = []
+            interim: AssistantProviderResponse | None = None
             try:
-                tool_calls, interim = tool_provider.generate_chat_with_tools(
+                tool_calls, interim = self._tool_turn1_via_ai_router(
                     history=history,
                     snapshot=snapshot,
                     user_message=request.message,
                     lang=lang,
-                    tool_declarations=TOOL_DECLARATIONS,
                 )
+            except AllProvidersFailedError as exc:
+                logger.info("AI router tool turn1 unavailable (%s), using legacy provider", exc)
+            except Exception as exc:
+                logger.warning("AI router tool turn1 failed: %s", exc)
 
-                if tool_calls:
-                    tool_results: list[dict[str, object]] = []
-                    for call in tool_calls:
-                        result = executor.execute(call["name"], call["args"])
-                        tool_results.append({"name": call["name"], "result": result})
-                        executed_actions.append(
-                            AssistantActionExecutionResponse(
-                                action_id=f"tool_{call['name']}",
-                                title=call["name"].replace("_", " ").title(),
-                                summary=self._tool_result_summary(call["name"], result, lang),
-                                affected_records=(
-                                    result.get("affected_shops")
-                                    or result.get("completed_count")
-                                    or result.get("started_count")
-                                    or result.get("resolved_count")
-                                    or result.get("freed_count")
-                                    or (1 if result.get("success", True) else 0)
-                                ),
-                                data=result,
-                                generated_at=datetime.datetime.now(datetime.UTC),
-                            )
-                        )
-
-                    snapshot = self._context.build_snapshot(lang=lang)
-                    provider_response = tool_provider.generate_chat_with_tools_turn2(
+            if interim is None:
+                try:
+                    tool_calls, interim = tool_provider.generate_chat_with_tools(
                         history=history,
                         snapshot=snapshot,
                         user_message=request.message,
                         lang=lang,
                         tool_declarations=TOOL_DECLARATIONS,
-                        parts1=interim.raw_payload.get("_parts1", []),
-                        tool_results=tool_results,
                     )
-                else:
-                    provider_response = interim
-            except AssistantProviderError:
-                provider_response = None
+                except AssistantProviderError:
+                    interim = None
+                    tool_calls = []
+
+            if interim is not None and tool_calls:
+                tool_results: list[dict[str, object]] = []
+                for call in tool_calls:
+                    result = executor.execute(call["name"], call["args"])
+                    tool_results.append({"name": call["name"], "result": result})
+                    executed_actions.append(
+                        AssistantActionExecutionResponse(
+                            action_id=f"tool_{call['name']}",
+                            title=call["name"].replace("_", " ").title(),
+                            summary=self._tool_result_summary(call["name"], result, lang),
+                            affected_records=(
+                                result.get("affected_shops")
+                                or result.get("completed_count")
+                                or result.get("started_count")
+                                or result.get("resolved_count")
+                                or result.get("freed_count")
+                                or (1 if result.get("success", True) else 0)
+                            ),
+                            data=result,
+                            generated_at=datetime.datetime.now(datetime.UTC),
+                        )
+                    )
+
+                snapshot = self._context.build_snapshot(lang=lang)
+                provider_response = tool_provider.generate_chat_with_tools_turn2(
+                    history=history,
+                    snapshot=snapshot,
+                    user_message=request.message,
+                    lang=lang,
+                    tool_declarations=TOOL_DECLARATIONS,
+                    parts1=interim.raw_payload.get("_parts1", []),
+                    tool_results=tool_results,
+                )
+            elif interim is not None:
+                provider_response = interim
 
         if provider_response is None:
             provider_response, used_fallback = self._generate_chat_response(
@@ -245,6 +268,58 @@ class SmartMallAssistantOrchestrator:
             gemini_enabled=gemini_enabled,
             fallback_active=not (openai_enabled or gemini_enabled),
             provider_label=provider_label,
+            router_health=ai_router.provider_status(),
+        )
+
+    def _tool_turn1_via_ai_router(
+        self,
+        *,
+        history: list[dict[str, str]],
+        snapshot: MallSnapshot,
+        user_message: str,
+        lang: str,
+    ) -> tuple[list[dict[str, Any]], AssistantProviderResponse]:
+        """Tool-selection via centralized AIRouter (OpenAI → Gemini failover)."""
+        system_prompt = (
+            "You are SmartMall AI OS. "
+            "When the user gives a clear operational command, call the appropriate tool. "
+            "When the user asks a question instead of a command, answer naturally without calling tools. "
+            "Reply in the same language as the user."
+        )
+        user_blob = json.dumps(
+            {
+                "preferred_language": "Arabic" if lang == "ar" else "English",
+                "user_message": user_message,
+                "mall_snapshot": snapshot.to_prompt_payload(),
+            },
+            ensure_ascii=False,
+        )
+        messages = list(history) + [{"role": "user", "content": user_blob}]
+        raw, provider_name = ai_router.route_tools(messages, system_prompt, TOOL_DECLARATIONS)
+        message = first_choice_message(raw)
+        tool_calls = extract_tool_calls(message.get("tool_calls"))
+        label = f"{provider_name}:router"
+        if tool_calls:
+            return tool_calls, AssistantProviderResponse(
+                answer="",
+                analysis=[],
+                suggestions=[],
+                follow_up_questions=[],
+                action_ids=[],
+                raw_payload={"provider": label, "_router": True},
+            )
+        answer_text = message_text(message) or (
+            "راجعت طلبك وسأساعدك بالاعتماد على بيانات المول الحالية."
+            if lang == "ar"
+            else "I reviewed your request and will help using the current mall data."
+        )
+        return [], AssistantProviderResponse(
+            answer=answer_text,
+            analysis=[],
+            suggestions=[],
+            follow_up_questions=[],
+            action_ids=[],
+            raw_payload={"provider": label, "_router": True},
         )
 
     def _actions_for(self, lang: str) -> AssistantActionRegistry:
