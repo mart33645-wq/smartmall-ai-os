@@ -14,7 +14,21 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from models.database import Alert, ParkingSlot, Shop, Task
+from services.ai.tools import system_tools
 from services.task_management import TaskManagementService
+
+# Tools that do not mutate mall data or external systems — any authenticated user may run.
+_READ_ONLY_TOOLS = frozenset(
+    {
+        "list_shops",
+        "list_tasks",
+        "get_system_health",
+        "git_recent_commits",
+        "vercel_status",
+        "vercel_recent_deployments",
+    }
+)
+
 
 # ── Gemini function declarations (sent as "tools") ───────────────────────────
 
@@ -197,24 +211,96 @@ TOOL_DECLARATIONS: list[dict[str, Any]] = [
             "required": ["shop_name"],
         },
     },
+    {
+        "name": "get_system_health",
+        "description": "Read-only snapshot of mall operational health (shops at risk, tasks, alerts, parking occupancy).",
+        "parameters": {"type": "OBJECT", "properties": {}, "required": []},
+    },
+    {
+        "name": "git_commit_and_push",
+        "description": "Stage changes, commit with a message, and push to GitHub (admin only; requires GITHUB_TOKEN).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "message": {"type": "STRING", "description": "Commit message describing the change"},
+            },
+            "required": ["message"],
+        },
+    },
+    {
+        "name": "git_rollback",
+        "description": "Revert the last commit via git revert and push (admin only).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "reason": {"type": "STRING", "description": "Short reason recorded in logs"},
+            },
+            "required": ["reason"],
+        },
+    },
+    {
+        "name": "git_recent_commits",
+        "description": "List recent commit SHAs and messages from the configured repository.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {"n": {"type": "INTEGER", "description": "How many commits (default 5)"}},
+            "required": [],
+        },
+    },
+    {
+        "name": "vercel_deploy",
+        "description": "Trigger a new Vercel deployment (admin only; requires VERCEL_TOKEN and project id).",
+        "parameters": {"type": "OBJECT", "properties": {}, "required": []},
+    },
+    {
+        "name": "vercel_status",
+        "description": "Get the latest or a specific Vercel deployment status.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "deployment_id": {"type": "STRING", "description": "Optional deployment UID; omit for latest"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "vercel_recent_deployments",
+        "description": "List recent Vercel deployments with state and URL.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {"limit": {"type": "INTEGER", "description": "Max rows (default 5)"}},
+            "required": [],
+        },
+    },
 ]
 
 
 # ── Executor ─────────────────────────────────────────────────────────────────
 
 class ToolExecutor:
-    def __init__(self, db: Session, actor_user_id: int | None = None):
+    def __init__(self, db: Session, actor_user_id: int | None = None, actor_role: str | None = None):
         self._db = db
         self._actor_user_id = actor_user_id
+        self._actor_role = (actor_role or "").strip()
+
+    def _is_admin(self) -> bool:
+        return self._actor_role.casefold() == "admin"
 
     def execute(self, function_name: str, args: dict[str, Any]) -> dict[str, Any]:
+        if function_name not in _READ_ONLY_TOOLS and not self._is_admin():
+            return {
+                "success": False,
+                "error": "This operation requires an administrator account.",
+                "requires_admin": True,
+            }
         handler = getattr(self, f"_tool_{function_name}", None)
         if handler is None:
-            return {"error": f"Unknown tool: {function_name}"}
+            return {"success": False, "error": f"Unknown tool: {function_name}"}
         try:
             return handler(**args)
         except Exception as exc:
-            return {"error": str(exc)}
+            self._db.rollback()
+            return {"success": False, "error": str(exc)}
 
     # ── Shop tools ────────────────────────────────────────────────────────────
 
@@ -420,7 +506,7 @@ class ToolExecutor:
     # ── Parking tools ─────────────────────────────────────────────────────────
 
     def _tool_free_parking(self, count: int = 0) -> dict:
-        q = self._db.query(ParkingSlot).filter(ParkingSlot.is_occupied == True)
+        q = self._db.query(ParkingSlot).filter(ParkingSlot.is_occupied.is_(True))
         if count and count > 0:
             q = q.limit(count)
         slots = q.all()
@@ -428,6 +514,30 @@ class ToolExecutor:
             slot.is_occupied = False
         self._db.commit()
         return {"success": True, "action": "free_parking", "freed_count": len(slots)}
+
+    # ── System / integrations (see services.ai.tools.system_tools) ───────────
+
+    def _tool_get_system_health(self) -> dict:
+        return system_tools.get_system_health(self._db)
+
+    def _tool_git_commit_and_push(self, message: str, push: bool = True) -> dict:
+        return system_tools.git_commit_and_push(message=message, push=push)
+
+    def _tool_git_rollback(self, reason: str) -> dict:
+        return system_tools.git_rollback(reason=reason)
+
+    def _tool_git_recent_commits(self, n: int = 5) -> dict:
+        return system_tools.git_recent_commits(n=n)
+
+    def _tool_vercel_deploy(self) -> dict:
+        return system_tools.vercel_deploy()
+
+    def _tool_vercel_status(self, deployment_id: str | None = None) -> dict:
+        return system_tools.vercel_status(deployment_id=deployment_id)
+
+    def _tool_vercel_recent_deployments(self, limit: int = 5) -> dict:
+        rows = system_tools.vercel_recent_deployments(limit=limit)
+        return {"success": True, "action": "vercel_recent_deployments", "deployments": rows, "count": len(rows)}
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

@@ -10,6 +10,7 @@ try:
 except ImportError:
     pass
 
+
 def _split_origins(raw: str) -> List[str]:
     return [x.strip() for x in raw.split(",") if x.strip()]
 
@@ -18,6 +19,7 @@ def _default_sqlite_database_url() -> str:
     base_dir = Path(tempfile.gettempdir()) / "SmartMall AI OS"
     base_dir.mkdir(parents=True, exist_ok=True)
     return f"sqlite:///{(base_dir / 'smartmall.db').as_posix()}"
+
 
 @dataclass(frozen=True)
 class GeminiSettings:
@@ -46,6 +48,29 @@ class OpenAISettings:
 
 
 @dataclass(frozen=True)
+class GitHubSettings:
+    token: str
+    repo: str       # e.g. "username/smartmall-ai-os"
+    branch: str
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.token and self.repo)
+
+
+@dataclass(frozen=True)
+class VercelSettings:
+    token: str
+    project_id: str
+    team_id: str
+    deploy_hook_url: str
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.token and self.project_id)
+
+
+@dataclass(frozen=True)
 class AppSettings:
     secret_key: str
     algorithm: str
@@ -60,6 +85,8 @@ class AppSettings:
     ai_automation_default: bool
     openai: OpenAISettings
     gemini: GeminiSettings
+    github: GitHubSettings
+    vercel: VercelSettings
 
     @property
     def llm_enabled(self) -> bool:
@@ -83,17 +110,30 @@ class AppSettings:
             ai_automation_default=os.getenv("AI_AUTOMATION_DEFAULT", "true").lower() in ("1", "true", "yes"),
             openai=OpenAISettings(
                 api_key=os.getenv("OPENAI_API_KEY", "").strip(),
-                model=os.getenv("OPENAI_MODEL", "gpt-5-mini").strip() or "gpt-5-mini",
+                # Default to gpt-4o-mini — fast, cheap, reliable production model
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini",
                 base_url=os.getenv("OPENAI_API_BASE_URL", "https://api.openai.com/v1").strip() or "https://api.openai.com/v1",
-                timeout_seconds=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "12")),
+                timeout_seconds=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "20")),
             ),
             gemini=GeminiSettings(
                 api_key=os.getenv("GEMINI_API_KEY", "").strip(),
-                model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash",
+                # Default to gemini-2.5-pro as the fallback — most capable Gemini model
+                model=os.getenv("GEMINI_MODEL", "gemini-2.5-pro").strip() or "gemini-2.5-pro",
                 base_url=os.getenv("GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"),
-                timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS", "15")),
+                timeout_seconds=float(os.getenv("GEMINI_TIMEOUT_SECONDS", "25")),
                 memory_window=max(4, int(os.getenv("GEMINI_MEMORY_WINDOW", "12"))),
                 temperature=float(os.getenv("GEMINI_TEMPERATURE", "0.3")),
+            ),
+            github=GitHubSettings(
+                token=os.getenv("GITHUB_TOKEN", "").strip(),
+                repo=os.getenv("GITHUB_REPO", "").strip(),
+                branch=os.getenv("GITHUB_BRANCH", "main").strip() or "main",
+            ),
+            vercel=VercelSettings(
+                token=os.getenv("VERCEL_TOKEN", "").strip(),
+                project_id=os.getenv("VERCEL_PROJECT_ID", "").strip(),
+                team_id=os.getenv("VERCEL_TEAM_ID", "").strip(),
+                deploy_hook_url=os.getenv("VERCEL_DEPLOY_HOOK_URL", "").strip(),
             ),
         )
 

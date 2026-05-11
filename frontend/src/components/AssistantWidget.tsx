@@ -4,6 +4,7 @@ import {
   BrainCircuit,
   Loader2,
   MessageSquare,
+  Mic,
   Play,
   RefreshCw,
   Send,
@@ -31,6 +32,7 @@ import type {
 } from '../lib/assistantApi';
 import { assistantApi } from '../lib/assistantApi';
 import { offlineAssistantAnalysis, offlineAssistantChat, offlineAssistantStatus } from '../lib/demoData';
+import { chatWithFallback, streamChat } from '../lib/streamingApi';
 import { useStore } from '../store/useStore';
 
 const STORAGE_KEY = 'smartmall_assistant_conversation';
@@ -185,6 +187,7 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const streamCancelRef = useRef<(() => void) | null>(null);
 
   const panelVisible = isPage || isOpen;
   const hasBackendSession = Boolean(user?.token);
@@ -235,6 +238,14 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
   useEffect(() => {
     writeStoredConversationId(conversationId);
   }, [conversationId]);
+
+  useEffect(
+    () => () => {
+      streamCancelRef.current?.();
+      streamCancelRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!hasBackendSession || !panelVisible || !conversationId || messages.length > 0) {
@@ -296,6 +307,9 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
       return;
     }
 
+    streamCancelRef.current?.();
+    streamCancelRef.current = null;
+
     const optimisticUserMessage: AssistantMessage = {
       role: 'user',
       content: nextMessage,
@@ -306,6 +320,95 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
     setMessages((current) => [...current, optimisticUserMessage]);
     setInput('');
     setSending(true);
+
+    const token = user?.token;
+    const useStream =
+      hasBackendSession && Boolean(status?.llm_enabled) && !autoRunActions && Boolean(token);
+
+    if (useStream && token) {
+      let accumulated = '';
+      const streamKey = `stream-${Date.now()}`;
+      setMessages((current) => [
+        ...current,
+        {
+          role: 'assistant',
+          content: '',
+          created_at: new Date().toISOString(),
+          payload: { streaming: true, streamKey },
+        },
+      ]);
+
+      streamCancelRef.current = streamChat(
+        {
+          message: nextMessage,
+          conversation_id: conversationId,
+          allow_automation: false,
+          lang,
+        },
+        {
+          onToken: (tok) => {
+            accumulated += tok;
+            setMessages((current) =>
+              current.map((m) =>
+                m.payload && (m.payload as Record<string, unknown>).streamKey === streamKey ? { ...m, content: accumulated } : m,
+              ),
+            );
+          },
+          onDone: (data) => {
+            setConversationId(data.conversation_id);
+            setMessages((current) =>
+              current.map((m) =>
+                m.payload && (m.payload as Record<string, unknown>).streamKey === streamKey
+                  ? {
+                      ...m,
+                      content: accumulated,
+                      payload: {
+                        provider: data.provider,
+                        streamed: true,
+                        memory_entries: data.memory_entries,
+                      },
+                    }
+                  : m,
+              ),
+            );
+            streamCancelRef.current = null;
+            setSending(false);
+          },
+          onError: async (err) => {
+            toast.error(typeof err === 'string' && err ? err : t('assistantRequestFailed'));
+            setMessages((current) =>
+              current.filter((m) => (m.payload as Record<string, unknown> | undefined)?.streamKey !== streamKey),
+            );
+            try {
+              const response = await chatWithFallback({
+                message: nextMessage,
+                conversation_id: conversationId,
+                allow_automation: false,
+                lang,
+              });
+              setConversationId(response.conversation_id);
+              setActionCatalog((current) => mergeActions(current, response.suggested_actions));
+              setMessages((current) => [...current, toAssistantMessage(response)]);
+            } catch {
+              setMessages((current) => [
+                ...current,
+                {
+                  role: 'system',
+                  content: t('assistantRequestFailed'),
+                  created_at: new Date().toISOString(),
+                  payload: {},
+                },
+              ]);
+            } finally {
+              streamCancelRef.current = null;
+              setSending(false);
+            }
+          },
+        },
+        token,
+      );
+      return;
+    }
 
     try {
       const response = hasBackendSession
@@ -638,15 +741,61 @@ export const AssistantWidget = ({ variant = 'floating', prefillMessage = null }:
                 className="w-full resize-none bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
               />
               <div className="mt-3 flex items-center justify-between gap-3">
-                <p className="text-[11px] text-slate-500">{autoRunActions ? t('assistantAutomationEnabled') : t('assistantChatOnly')}</p>
-                <button
-                  type="submit"
-                  disabled={sending || input.trim().length === 0}
-                  className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-4 py-2 text-sm font-bold text-white transition disabled:opacity-50"
-                >
-                  {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                  {t('assistantSend')}
-                </button>
+                <p className="text-[11px] text-slate-500">
+                  {autoRunActions ? t('assistantAutomationEnabled') : t('assistantChatOnly')}
+                  {!autoRunActions && status?.llm_enabled ? (
+                    <span className="ms-2 text-cyan-400/90">· SSE</span>
+                  ) : null}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    title={lang === 'ar' ? 'إدخال صوتي' : 'Voice input'}
+                    onClick={() => {
+                      const g = globalThis as unknown as {
+                        SpeechRecognition?: new () => {
+                          lang: string;
+                          start: () => void;
+                          onresult: ((ev: unknown) => void) | null;
+                          onerror: (() => void) | null;
+                        };
+                        webkitSpeechRecognition?: new () => {
+                          lang: string;
+                          start: () => void;
+                          onresult: ((ev: unknown) => void) | null;
+                          onerror: (() => void) | null;
+                        };
+                      };
+                      const SR = g.SpeechRecognition || g.webkitSpeechRecognition;
+                      if (!SR) {
+                        toast.error(lang === 'ar' ? 'المتصفح لا يدعم الإدخال الصوتي' : 'Voice input is not supported in this browser');
+                        return;
+                      }
+                      const rec = new SR();
+                      rec.lang = lang === 'ar' ? 'ar-SA' : 'en-US';
+                      rec.onresult = (event: unknown) => {
+                        const e = event as { results?: { [k: number]: { [j: number]: { transcript?: string } } } };
+                        const text = (e.results?.[0]?.[0]?.transcript ?? '').trim();
+                        if (text) setInput((prev) => (prev ? `${prev} ${text}` : text));
+                      };
+                      rec.onerror = () => {
+                        toast.error(lang === 'ar' ? 'تعذر التقاط الصوت' : 'Could not capture speech');
+                      };
+                      rec.start();
+                    }}
+                    className="rounded-2xl border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:text-white"
+                  >
+                    <Mic size={16} />
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={sending || input.trim().length === 0}
+                    className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-indigo-500 px-4 py-2 text-sm font-bold text-white transition disabled:opacity-50"
+                  >
+                    {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                    {t('assistantSend')}
+                  </button>
+                </div>
               </div>
             </div>
           </form>

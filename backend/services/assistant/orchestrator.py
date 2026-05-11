@@ -55,7 +55,11 @@ class SmartMallAssistantOrchestrator:
 
         snapshot = self._context.build_snapshot(lang=lang)
         history = self._history_for_provider(conversation.id)
-        executor = ToolExecutor(self._db, actor_user_id=self._current_user.id)
+        executor = ToolExecutor(
+            self._db,
+            actor_user_id=self._current_user.id,
+            actor_role=self._current_user.role,
+        )
 
         executed_actions: list[AssistantActionExecutionResponse] = []
         provider_response: AssistantProviderResponse | None = None
@@ -224,43 +228,72 @@ class SmartMallAssistantOrchestrator:
         gemini_enabled = self._gemini.is_available()
         llm_provider = self._active_llm_provider()
         provider = llm_provider.provider_name if llm_provider is not None else self._fallback.provider_name
-        model = settings.openai.model if llm_provider is self._openai else "fallback"
+        if llm_provider is self._openai:
+            model = settings.openai.model
+            provider_label = f"OpenAI ({settings.openai.model})"
+        elif llm_provider is self._gemini:
+            model = settings.gemini.model
+            provider_label = f"Gemini ({settings.gemini.model})"
+        else:
+            model = "rule-engine"
+            provider_label = "Rule Engine"
         return AssistantStatusResponse(
             provider=provider,
             model=model,
-            llm_enabled=openai_enabled,
+            llm_enabled=openai_enabled or gemini_enabled,
             openai_enabled=openai_enabled,
             gemini_enabled=gemini_enabled,
-            fallback_active=not openai_enabled,
-            provider_label="OpenAI" if openai_enabled else "Fallback",
+            fallback_active=not (openai_enabled or gemini_enabled),
+            provider_label=provider_label,
         )
 
     def _actions_for(self, lang: str) -> AssistantActionRegistry:
         return AssistantActionRegistry(self._db, self._context, lang)
 
     def _generate_chat_response(self, **kwargs):
+        # Primary: OpenAI
         if self._openai.is_available():
             try:
                 return self._openai.generate_chat(**kwargs), False
             except AssistantProviderError:
                 pass
+        # Fallback: Gemini (drop execution_context — Gemini interface doesn't accept it)
+        if self._gemini.is_available():
+            try:
+                gemini_kwargs = {k: v for k, v in kwargs.items() if k != "execution_context"}
+                return self._gemini.generate_chat(**gemini_kwargs), True
+            except AssistantProviderError:
+                pass
+        # Last resort: rule-based engine
         kwargs.pop("execution_context", None)
         return self._fallback.generate_chat(**kwargs), True
 
     def _generate_system_analysis(self, **kwargs):
+        # Primary: OpenAI
         if self._openai.is_available():
             try:
                 return self._openai.generate_system_analysis(**kwargs), False
             except AssistantProviderError:
                 pass
+        # Fallback: Gemini
+        if self._gemini.is_available():
+            try:
+                return self._gemini.generate_system_analysis(**kwargs), True
+            except AssistantProviderError:
+                pass
+        # Last resort: rule-based engine
         return self._fallback.generate_system_analysis(**kwargs), True
 
     def _active_llm_provider(self):
+        """Return the best available LLM provider (OpenAI first, then Gemini)."""
         if self._openai.is_available():
             return self._openai
+        if self._gemini.is_available():
+            return self._gemini
         return None
 
     def _tool_calling_provider(self):
+        """Return a provider capable of tool calling (both OpenAI and Gemini support it)."""
         return self._active_llm_provider()
 
     def _history_for_provider(self, conversation_id: str) -> list[dict[str, str]]:
@@ -384,6 +417,13 @@ class SmartMallAssistantOrchestrator:
             )
 
         summaries_ar = {
+            "get_system_health": "تم جلب ملخص صحة النظام التشغيلية.",
+            "git_commit_and_push": "تم تنفيذ طلب الالتزام والدفع إلى GitHub.",
+            "git_rollback": "تم تنفيذ التراجع عن آخر التزام.",
+            "git_recent_commits": f"تم جلب {len(result.get('commits') or [])} التزامات أخيرة.",
+            "vercel_deploy": "تم تشغيل نشر جديد على Vercel.",
+            "vercel_status": "تم جلب حالة النشر من Vercel.",
+            "vercel_recent_deployments": f"تم جلب {result.get('count', 0)} عمليات نشر.",
             "add_shop": f"تمت إضافة المحل **{result.get('name')}** في الطابق {result.get('floor')} بإيجار {result.get('rent_amount'):,.0f}.",
             "delete_shop": f"تم حذف المحل **{result.get('deleted_shop')}**.",
             "adjust_shop_rent": f"تم تعديل إيجار **{result.get('shop')}** من {result.get('old_rent'):,.0f} إلى {result.get('new_rent'):,.0f}.",
@@ -399,6 +439,13 @@ class SmartMallAssistantOrchestrator:
             "update_shop": f"تم تحديث بيانات **{result.get('shop')}**.",
         }
         summaries_en = {
+            "get_system_health": "Fetched operational health summary.",
+            "git_commit_and_push": "Git commit and push completed.",
+            "git_rollback": "Git rollback (revert) completed.",
+            "git_recent_commits": f"Fetched {len(result.get('commits') or [])} recent commit(s).",
+            "vercel_deploy": "Triggered a new Vercel deployment.",
+            "vercel_status": "Fetched Vercel deployment status.",
+            "vercel_recent_deployments": f"Fetched {result.get('count', 0)} deployment(s).",
             "add_shop": f"Added shop **{result.get('name')}** on floor {result.get('floor')} with rent {result.get('rent_amount'):,.0f}.",
             "delete_shop": f"Deleted shop **{result.get('deleted_shop')}**.",
             "adjust_shop_rent": f"Updated **{result.get('shop')}** rent from {result.get('old_rent'):,.0f} to {result.get('new_rent'):,.0f}.",
@@ -470,4 +517,8 @@ class SmartMallAssistantOrchestrator:
         )
 
     def _provider_label(self, used_fallback: bool) -> str:
-        return self._fallback.provider_name if used_fallback else f"openai:{settings.openai.model}"
+        if not used_fallback:
+            return f"openai:{settings.openai.model}"
+        if self._gemini.is_available():
+            return f"gemini:{settings.gemini.model}"
+        return self._fallback.provider_name

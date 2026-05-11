@@ -144,9 +144,33 @@ class AssistantMessage(Base):
     created_at = Column(DateTime, default=utcnow, index=True)
 
 
+class AuditLog(Base):
+    """
+    Records every AI-executed action for security, compliance, and debugging.
+    Written before and after every tool call from the AI assistant.
+    """
+    __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_user_created", "user_id", "created_at"),
+        Index("ix_audit_logs_action", "action"),
+    )
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    action = Column(String)  # indexed via ix_audit_logs_action below
+    tool_name = Column(String, nullable=True)     # AI tool function name
+    payload = Column(JSON, nullable=True)         # Input parameters
+    result = Column(JSON, nullable=True)          # Output / result
+    provider_used = Column(String, nullable=True) # "openai" | "gemini" | "fallback"
+    success = Column(Boolean, default=True)
+    error_message = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+

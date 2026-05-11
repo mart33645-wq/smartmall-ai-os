@@ -512,9 +512,9 @@ class AssistantActionRegistry:
                 self._db.refresh(target)
                 results.append(AssistantActionExecutionResult(
                     action_id="direct_set_rent",
-                    title="ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ø¥ÙŠØ¬Ø§Ø±" if self._lang == "ar" else "Set rent",
+                    title="تحديد الإيجار" if self._lang == "ar" else "Set rent",
                     summary=(
-                        f"ØªÙ… ØªØ­Ø¯ÙŠØ¯ Ø¥ÙŠØ¬Ø§Ø± **{target.name}** Ù…Ù† {old_rent:,.0f} Ø¥Ù„Ù‰ {target.rent_amount:,.0f}."
+                        f"تم تحديد إيجار **{target.name}** من {old_rent:,.0f} إلى {target.rent_amount:,.0f}."
                         if self._lang == "ar"
                         else f"Set **{target.name}** rent from {old_rent:,.0f} to {target.rent_amount:,.0f}."
                     ),
